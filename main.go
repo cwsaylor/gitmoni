@@ -193,10 +193,13 @@ func (m *model) selectFile(index int) {
 		diff, err := getFileDiff(repo, fileItem.gitFile.Path)
 		if err != nil {
 			m.currentDiff = fmt.Sprintf("Error getting diff: %s", err.Error())
+		} else if diff == "" {
+			m.currentDiff = fmt.Sprintf("No diff available for: %s\n\nThis could mean:\n- File is newly added (not tracked)\n- File is staged but no changes in working directory\n- Binary file", fileItem.gitFile.Path)
 		} else {
 			m.currentDiff = diff
 		}
 		m.diffView.SetContent(m.currentDiff)
+		m.diffView.GotoTop()
 	}
 }
 
