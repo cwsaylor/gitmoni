@@ -69,11 +69,11 @@ func isGitRepository(path string) bool {
 }
 
 func getFileDiff(repoPath, filePath string) (string, error) {
-	cmd := exec.Command("git", "diff", filePath)
+	cmd := exec.Command("git", "diff", "--", filePath)
 	cmd.Dir = repoPath
 	output, err := cmd.Output()
-	if err != nil {
-		cmd = exec.Command("git", "diff", "--cached", filePath)
+	if err != nil || len(output) == 0 {
+		cmd = exec.Command("git", "diff", "--cached", "--", filePath)
 		cmd.Dir = repoPath
 		output, err = cmd.Output()
 		if err != nil {
