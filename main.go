@@ -18,9 +18,17 @@ const (
 	modeFilePicker
 )
 
+type focusedPane int
+
+const (
+	focusRepo focusedPane = iota
+	focusFile
+)
+
 type model struct {
 	config           *Config
 	mode             mode
+	focused          focusedPane
 	width            int
 	height           int
 	repoList         list.Model
@@ -110,6 +118,7 @@ func initialModel() (model, error) {
 	m := model{
 		config:      config,
 		mode:        modeMain,
+		focused:     focusRepo,
 		repoList:    repoList,
 		fileList:    fileList,
 		diffView:    diffView,
@@ -186,8 +195,14 @@ func (m *model) selectFile(index int) {
 	if index >= 0 && index < len(items) {
 		m.selectedFile = index
 		m.fileList.Select(index)
-		
-		fileItem := items[index].(fileItem)
+		m.updateDiff()
+	}
+}
+
+func (m *model) updateDiff() {
+	items := m.fileList.Items()
+	if m.selectedFile >= 0 && m.selectedFile < len(items) {
+		fileItem := items[m.selectedFile].(fileItem)
 		repo := m.config.Repositories[m.selectedRepo]
 		
 		diff, err := getFileDiff(repo, fileItem.gitFile.Path)
@@ -263,27 +278,68 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
 			switch msg.String() {
+			case "tab":
+				// Switch focus between repo and file panes
+				if m.focused == focusRepo {
+					m.focused = focusFile
+				} else {
+					m.focused = focusRepo
+				}
 			case "up", "k":
-				if m.repoList.SelectedItem() != nil {
-					newIndex := (m.selectedRepo - 1 + len(m.config.Repositories)) % len(m.config.Repositories)
-					m.selectRepo(newIndex)
+				if m.focused == focusRepo {
+					// Let the list handle the navigation, then sync our state
+					m.repoList, cmd = m.repoList.Update(msg)
+					cmds = append(cmds, cmd)
+					// Update our selection tracking and file list
+					if m.repoList.SelectedItem() != nil {
+						m.selectedRepo = m.repoList.Index()
+						m.updateFileList()
+						if len(m.fileList.Items()) > 0 {
+							m.selectFile(0)
+						} else {
+							m.currentDiff = ""
+							m.diffView.SetContent("")
+						}
+					}
+					return m, tea.Batch(cmds...)
+				} else if m.focused == focusFile {
+					// Let the list handle the navigation, then sync our state
+					m.fileList, cmd = m.fileList.Update(msg)
+					cmds = append(cmds, cmd)
+					// Update our selection tracking and diff
+					if m.fileList.SelectedItem() != nil {
+						m.selectedFile = m.fileList.Index()
+						m.updateDiff()
+					}
+					return m, tea.Batch(cmds...)
 				}
 			case "down", "j":
-				if m.repoList.SelectedItem() != nil {
-					newIndex := (m.selectedRepo + 1) % len(m.config.Repositories)
-					m.selectRepo(newIndex)
-				}
-			case "tab":
-				items := m.fileList.Items()
-				if len(items) > 0 {
-					newIndex := (m.selectedFile + 1) % len(items)
-					m.selectFile(newIndex)
-				}
-			case "shift+tab":
-				items := m.fileList.Items()
-				if len(items) > 0 {
-					newIndex := (m.selectedFile - 1 + len(items)) % len(items)
-					m.selectFile(newIndex)
+				if m.focused == focusRepo {
+					// Let the list handle the navigation, then sync our state
+					m.repoList, cmd = m.repoList.Update(msg)
+					cmds = append(cmds, cmd)
+					// Update our selection tracking and file list
+					if m.repoList.SelectedItem() != nil {
+						m.selectedRepo = m.repoList.Index()
+						m.updateFileList()
+						if len(m.fileList.Items()) > 0 {
+							m.selectFile(0)
+						} else {
+							m.currentDiff = ""
+							m.diffView.SetContent("")
+						}
+					}
+					return m, tea.Batch(cmds...)
+				} else if m.focused == focusFile {
+					// Let the list handle the navigation, then sync our state
+					m.fileList, cmd = m.fileList.Update(msg)
+					cmds = append(cmds, cmd)
+					// Update our selection tracking and diff
+					if m.fileList.SelectedItem() != nil {
+						m.selectedFile = m.fileList.Index()
+						m.updateDiff()
+					}
+					return m, tea.Batch(cmds...)
 				}
 			case "r":
 				m.updateGitStatuses()
@@ -292,11 +348,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		
-		m.repoList, cmd = m.repoList.Update(msg)
-		cmds = append(cmds, cmd)
+		// Only update non-focused components
+		if m.focused != focusRepo {
+			m.repoList, cmd = m.repoList.Update(msg)
+			cmds = append(cmds, cmd)
+		}
 		
-		m.fileList, cmd = m.fileList.Update(msg)
-		cmds = append(cmds, cmd)
+		if m.focused != focusFile {
+			m.fileList, cmd = m.fileList.Update(msg)
+			cmds = append(cmds, cmd)
+		}
 		
 		m.diffView, cmd = m.diffView.Update(msg)
 		cmds = append(cmds, cmd)
@@ -318,8 +379,20 @@ func (m model) View() string {
 		Border(lipgloss.RoundedBorder()).
 		Padding(0, 1)
 
-	leftPane := paneStyle.Render(m.repoList.View())
-	middlePane := paneStyle.Render(m.fileList.View())
+	focusedStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(0, 1)
+
+	// Apply focused styling to the current pane
+	var leftPane, middlePane string
+	if m.focused == focusRepo {
+		leftPane = focusedStyle.Render(m.repoList.View())
+		middlePane = paneStyle.Render(m.fileList.View())
+	} else {
+		leftPane = paneStyle.Render(m.repoList.View())
+		middlePane = focusedStyle.Render(m.fileList.View())
+	}
 	rightPane := paneStyle.Render(m.diffView.View())
 
 	content := lipgloss.JoinHorizontal(
@@ -329,7 +402,7 @@ func (m model) View() string {
 		rightPane,
 	)
 
-	helpText := "Press 'o' to add repository, 'r' to refresh, 'q' to quit, ↑↓ for repos, Tab/Shift+Tab for files"
+	helpText := "Press 'o' to add repository, 'r' to refresh, 'q' to quit, Tab to switch panes, ↑↓ to navigate"
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Render(helpText)
