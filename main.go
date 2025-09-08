@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/filepicker"
@@ -39,6 +40,8 @@ type model struct {
 	selectedFile     int
 	gitStatuses      map[string]GitStatus
 	currentDiff      string
+	launchLazyGit    bool
+	lazyGitRepo      string
 }
 
 type repoItem struct {
@@ -269,6 +272,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.selectRepo(len(m.config.Repositories) - 1)
 					}
 				}
+			} else if m.mode == modeMain && len(m.config.Repositories) > 0 {
+				// Set flag to launch lazygit and quit
+				m.launchLazyGit = true
+				m.lazyGitRepo = m.config.Repositories[m.selectedRepo]
+				return m, tea.Quit
 			}
 		}
 	}
@@ -402,7 +410,7 @@ func (m model) View() string {
 		rightPane,
 	)
 
-	helpText := "Press 'o' to add repository, 'r' to refresh, 'q' to quit, Tab to switch panes, ↑↓ to navigate"
+	helpText := "Press 'o' to add repository, 'r' to refresh, 'q' to quit, Tab to switch panes, ↑↓ to navigate, Enter to open lazygit"
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Render(helpText)
@@ -410,16 +418,27 @@ func (m model) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, content, help)
 }
 
+
 func main() {
-	model, err := initialModel()
+	m, err := initialModel()
 	if err != nil {
 		fmt.Printf("Error initializing: %v\n", err)
 		os.Exit(1)
 	}
 
-	p := tea.NewProgram(model, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	finalModel, err := p.Run()
+	if err != nil {
 		fmt.Printf("Error running program: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Check if we need to launch lazygit
+	if result, ok := finalModel.(model); ok && result.launchLazyGit {
+		cmd := exec.Command("lazygit", "-p", result.lazyGitRepo)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Run()
 	}
 }
