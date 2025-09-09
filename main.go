@@ -10,19 +10,12 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-type mode int
-
-const (
-	modeMain mode = iota
-	modeFilePicker
-)
 
 type focusedPane int
 
@@ -33,14 +26,12 @@ const (
 
 type model struct {
 	config        *Config
-	mode          mode
 	focused       focusedPane
 	width         int
 	height        int
 	repoList      list.Model
 	fileList      list.Model
 	diffView      viewport.Model
-	filePicker    filepicker.Model
 	selectedRepo  int
 	selectedFile  int
 	gitStatuses   map[string]GitStatus
@@ -162,9 +153,6 @@ func initialModel() (model, error) {
 		return model{}, err
 	}
 
-	fp := filepicker.New()
-	fp.DirAllowed = true
-	fp.FileAllowed = false
 
 	repoDelegate := list.NewDefaultDelegate()
 	repoList := list.New([]list.Item{}, repoDelegate, 0, 0)
@@ -178,23 +166,17 @@ func initialModel() (model, error) {
 
 	m := model{
 		config:      config,
-		mode:        modeMain,
 		focused:     focusRepo,
 		repoList:    repoList,
 		fileList:    fileList,
 		diffView:    diffView,
-		filePicker:  fp,
 		gitStatuses: make(map[string]GitStatus),
 	}
 
-	if len(config.Repositories) == 0 {
-		m.mode = modeFilePicker
-	} else {
+	if len(config.Repositories) > 0 {
 		m.updateGitStatuses()
 		m.updateRepoList()
-		if len(config.Repositories) > 0 {
-			m.selectRepo(0)
-		}
+		m.selectRepo(0)
 	}
 
 	return m, nil
@@ -282,9 +264,6 @@ func (m *model) updateDiff() {
 }
 
 func (m model) Init() tea.Cmd {
-	if m.mode == modeFilePicker {
-		return m.filePicker.Init()
-	}
 	return nil
 }
 
@@ -331,30 +310,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
-		case "o":
-			if m.mode == modeMain {
-				m.mode = modeFilePicker
-				m.filePicker, cmd = m.filePicker.Update(msg)
-				return m, cmd
-			}
-		case "esc":
-			if m.mode == modeFilePicker {
-				m.mode = modeMain
-				return m, nil
-			}
 		case "enter":
-			if m.mode == modeFilePicker {
-				if didSelect, path := m.filePicker.DidSelectFile(msg); didSelect {
-					m.config.addRepository(path)
-					m.config.saveConfig()
-					m.updateGitStatuses()
-					m.updateRepoList()
-					m.mode = modeMain
-					if len(m.config.Repositories) > 0 {
-						m.selectRepo(len(m.config.Repositories) - 1)
-					}
-				}
-			} else if m.mode == modeMain && len(m.config.Repositories) > 0 {
+			if len(m.config.Repositories) > 0 {
 				// Set flag to launch lazygit and quit
 				m.launchLazyGit = true
 				m.lazyGitRepo = m.config.Repositories[m.selectedRepo]
@@ -363,8 +320,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	switch m.mode {
-	case modeMain:
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
 			switch msg.String() {
@@ -438,32 +393,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Only update non-focused components
-		if m.focused != focusRepo {
-			m.repoList, cmd = m.repoList.Update(msg)
-			cmds = append(cmds, cmd)
-		}
-
-		if m.focused != focusFile {
-			m.fileList, cmd = m.fileList.Update(msg)
-			cmds = append(cmds, cmd)
-		}
-
-		m.diffView, cmd = m.diffView.Update(msg)
-		cmds = append(cmds, cmd)
-
-	case modeFilePicker:
-		m.filePicker, cmd = m.filePicker.Update(msg)
+	// Only update non-focused components
+	if m.focused != focusRepo {
+		m.repoList, cmd = m.repoList.Update(msg)
 		cmds = append(cmds, cmd)
 	}
+
+	if m.focused != focusFile {
+		m.fileList, cmd = m.fileList.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	m.diffView, cmd = m.diffView.Update(msg)
+	cmds = append(cmds, cmd)
+
 
 	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() string {
-	if m.mode == modeFilePicker {
-		return fmt.Sprintf("Select a directory to add as a repository:\n\n%s\n\nPress ESC to cancel", m.filePicker.View())
-	}
 
 	// Calculate left column width for proper pane sizing
 	leftColumnWidth := int(float64(m.width) * 0.4)
@@ -512,7 +460,7 @@ func (m model) View() string {
 		rightColumn,
 	)
 
-	helpText := fmt.Sprintf("Press 'o' to add repository, 'r' to refresh, 'q' to quit, Tab to switch panes, ↑↓ to navigate, Enter to open %s", m.config.EnterCommandBinary)
+	helpText := fmt.Sprintf("Press 'r' to refresh, 'q' to quit, Tab to switch panes, ↑↓ to navigate, Enter to open %s", m.config.EnterCommandBinary)
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Render(helpText)
