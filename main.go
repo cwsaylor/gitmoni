@@ -187,6 +187,26 @@ func addRepositoryFromCommandLine(path string) error {
 	return nil
 }
 
+func listRepositoriesFromCommandLine() error {
+	// Load config
+	config, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if len(config.Repositories) == 0 {
+		fmt.Println("No repositories configured")
+		return nil
+	}
+
+	fmt.Printf("Configured repositories (%d):\n", len(config.Repositories))
+	for i, repo := range config.Repositories {
+		fmt.Printf("%d. %s\n", i+1, repo)
+	}
+
+	return nil
+}
+
 func initialModel() (model, error) {
 	config, err := loadConfig()
 	if err != nil {
@@ -511,6 +531,7 @@ func (m model) View() string {
 func main() {
 	// Parse command line flags
 	addRepo := flag.String("a", "", "Add a repository to the config")
+	listRepos := flag.Bool("l", false, "List repositories in the config")
 	flag.Parse()
 
 	// Handle add repository command
@@ -518,6 +539,16 @@ func main() {
 		err := addRepositoryFromCommandLine(*addRepo)
 		if err != nil {
 			fmt.Printf("Error adding repository: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Handle list repositories command
+	if *listRepos {
+		err := listRepositoriesFromCommandLine()
+		if err != nil {
+			fmt.Printf("Error listing repositories: %v\n", err)
 			os.Exit(1)
 		}
 		return
