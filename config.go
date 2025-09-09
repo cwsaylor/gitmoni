@@ -55,3 +55,25 @@ func (c *Config) addRepository(path string) {
 	}
 	c.Repositories = append(c.Repositories, path)
 }
+
+func (c *Config) addRepositoryWithPath(path string) bool {
+	// Convert path to absolute for comparison
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		absPath = path // fallback to original path
+	}
+
+	// Check for duplicates using absolute paths
+	for _, repo := range c.Repositories {
+		existingAbs, err := filepath.Abs(repo)
+		if err != nil {
+			existingAbs = repo // fallback to original path
+		}
+		if existingAbs == absPath {
+			return false // duplicate found
+		}
+	}
+	
+	c.Repositories = append(c.Repositories, absPath)
+	return true // successfully added
+}

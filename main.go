@@ -1,9 +1,11 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
@@ -145,6 +147,44 @@ func applySyntaxHighlighting(content, filePath string) string {
 	}
 
 	return buf.String()
+}
+
+func addRepositoryFromCommandLine(path string) error {
+	// Load config
+	config, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Expand path to absolute path
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+
+	// Check if directory exists
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		return fmt.Errorf("directory does not exist: %s", absPath)
+	}
+
+	// Check if it's a git repository
+	gitDir := filepath.Join(absPath, ".git")
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		return fmt.Errorf("not a git repository: %s", absPath)
+	}
+
+	// Add repository with duplicate checking
+	if config.addRepositoryWithPath(absPath) {
+		// Save config
+		if err := config.saveConfig(); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+		fmt.Printf("Added repository: %s\n", absPath)
+	} else {
+		fmt.Printf("Repository already exists: %s\n", absPath)
+	}
+
+	return nil
 }
 
 func initialModel() (model, error) {
@@ -469,6 +509,20 @@ func (m model) View() string {
 }
 
 func main() {
+	// Parse command line flags
+	addRepo := flag.String("a", "", "Add a repository to the config")
+	flag.Parse()
+
+	// Handle add repository command
+	if *addRepo != "" {
+		err := addRepositoryFromCommandLine(*addRepo)
+		if err != nil {
+			fmt.Printf("Error adding repository: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	m, err := initialModel()
 	if err != nil {
 		fmt.Printf("Error initializing: %v\n", err)
