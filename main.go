@@ -244,10 +244,12 @@ func initialModel() (model, error) {
 	repoDelegate := list.NewDefaultDelegate()
 	repoList := list.New([]list.Item{}, repoDelegate, 0, 0)
 	repoList.Title = "Repositories"
+	repoList.SetShowStatusBar(false)
 
 	fileDelegate := list.NewDefaultDelegate()
 	fileList := list.New([]list.Item{}, fileDelegate, 0, 0)
 	fileList.Title = "Changed Files"
+	fileList.SetShowStatusBar(false)
 
 	diffView := viewport.New(0, 0)
 
