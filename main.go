@@ -512,7 +512,7 @@ func (m model) View() string {
 		rightColumn,
 	)
 
-	helpText := "Press 'o' to add repository, 'r' to refresh, 'q' to quit, Tab to switch panes, ↑↓ to navigate, Enter to open lazygit"
+	helpText := fmt.Sprintf("Press 'o' to add repository, 'r' to refresh, 'q' to quit, Tab to switch panes, ↑↓ to navigate, Enter to open %s", m.config.EnterCommandBinary)
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Render(helpText)
@@ -534,9 +534,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Check if we need to launch lazygit
+	// Check if we need to launch the configured binary
 	if result, ok := finalModel.(model); ok && result.launchLazyGit {
-		cmd := exec.Command("lazygit", "-p", result.lazyGitRepo)
+		binary := result.config.EnterCommandBinary
+		cmd := exec.Command(binary, "-p", result.lazyGitRepo)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

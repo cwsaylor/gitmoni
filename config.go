@@ -7,12 +7,14 @@ import (
 )
 
 type Config struct {
-	Repositories []string `json:"repositories"`
+	Repositories      []string `json:"repositories"`
+	EnterCommandBinary string   `json:"enter_command_binary"`
 }
 
 func loadConfig() (*Config, error) {
 	config := &Config{
-		Repositories: []string{},
+		Repositories:      []string{},
+		EnterCommandBinary: "lazygit", // default to lazygit
 	}
 
 	configPaths := []string{
