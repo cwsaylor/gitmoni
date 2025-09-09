@@ -249,24 +249,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		leftColumnWidth := int(float64(m.width) * 0.4)
 		rightColumnWidth := m.width - leftColumnWidth
 		
-		// Available space inside frames
-		leftContentWidth := leftColumnWidth - frameWidth
-		rightContentWidth := rightColumnWidth - frameWidth
-		
 		// Help text takes up some vertical space
 		helpHeight := 2 // Help text + some padding
 		availableHeight := m.height - helpHeight
 		
 		// Left column is split vertically: repositories (40%) and files (60%)
+		// Each component gets the full left column width and will have its own borders
+		leftPaneContentWidth := leftColumnWidth - frameWidth
+		rightPaneContentWidth := rightColumnWidth - frameWidth
+		
 		repoHeight := int(float64(availableHeight) * 0.4) - frameHeight
 		fileHeight := availableHeight - repoHeight - frameHeight - frameHeight // Subtract frame overhead for both components
-		
-		// Right column gets remaining height
 		diffHeight := availableHeight - frameHeight
 		
-		m.repoList.SetSize(leftContentWidth, repoHeight)
-		m.fileList.SetSize(leftContentWidth, fileHeight)
-		m.diffView.Width = rightContentWidth
+		m.repoList.SetSize(leftPaneContentWidth, repoHeight)
+		m.fileList.SetSize(leftPaneContentWidth, fileHeight)
+		m.diffView.Width = rightPaneContentWidth
 		m.diffView.Height = diffHeight
 
 	case tea.KeyMsg:
@@ -407,14 +405,25 @@ func (m model) View() string {
 		return fmt.Sprintf("Select a directory to add as a repository:\n\n%s\n\nPress ESC to cancel", m.filePicker.View())
 	}
 
+	// Calculate left column width for proper pane sizing
+	leftColumnWidth := int(float64(m.width) * 0.4)
+	rightColumnWidth := m.width - leftColumnWidth
+	
 	paneStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		Padding(0, 1)
+		Padding(0, 1).
+		Width(leftColumnWidth)
 
 	focusedStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("62")).
-		Padding(0, 1)
+		Padding(0, 1).
+		Width(leftColumnWidth)
+		
+	rightPaneStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		Padding(0, 1).
+		Width(rightColumnWidth)
 
 	// Apply focused styling to the current pane
 	var repoPane, filePane string
@@ -434,7 +443,7 @@ func (m model) View() string {
 	)
 	
 	// Create the right column with the diff view
-	rightColumn := paneStyle.Render(m.diffView.View())
+	rightColumn := rightPaneStyle.Render(m.diffView.View())
 
 	// Join the two columns horizontally
 	content := lipgloss.JoinHorizontal(
