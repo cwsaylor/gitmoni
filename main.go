@@ -5,10 +5,10 @@ import (
 	"os"
 	"os/exec"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -237,13 +237,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		
-		paneWidth := m.width / 3
-		paneHeight := m.height - 3
+		// Create a style to calculate frame size including borders and padding
+		frameStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			Padding(0, 1)
 		
-		m.repoList.SetSize(paneWidth-2, paneHeight)
-		m.fileList.SetSize(paneWidth-2, paneHeight)
-		m.diffView.Width = paneWidth - 2
-		m.diffView.Height = paneHeight
+		// Calculate frame overhead (borders + padding)
+		frameWidth, frameHeight := frameStyle.GetFrameSize()
+		
+		// 2-column layout: left column (40%) for repo and file lists, right column (60%) for diff
+		leftColumnWidth := int(float64(m.width) * 0.4)
+		rightColumnWidth := m.width - leftColumnWidth
+		
+		// Available space inside frames
+		leftContentWidth := leftColumnWidth - frameWidth
+		rightContentWidth := rightColumnWidth - frameWidth
+		
+		// Help text takes up some vertical space
+		helpHeight := 2 // Help text + some padding
+		availableHeight := m.height - helpHeight
+		
+		// Left column is split vertically: repositories (40%) and files (60%)
+		repoHeight := int(float64(availableHeight) * 0.4) - frameHeight
+		fileHeight := availableHeight - repoHeight - frameHeight - frameHeight // Subtract frame overhead for both components
+		
+		// Right column gets remaining height
+		diffHeight := availableHeight - frameHeight
+		
+		m.repoList.SetSize(leftContentWidth, repoHeight)
+		m.fileList.SetSize(leftContentWidth, fileHeight)
+		m.diffView.Width = rightContentWidth
+		m.diffView.Height = diffHeight
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -393,21 +417,30 @@ func (m model) View() string {
 		Padding(0, 1)
 
 	// Apply focused styling to the current pane
-	var leftPane, middlePane string
+	var repoPane, filePane string
 	if m.focused == focusRepo {
-		leftPane = focusedStyle.Render(m.repoList.View())
-		middlePane = paneStyle.Render(m.fileList.View())
+		repoPane = focusedStyle.Render(m.repoList.View())
+		filePane = paneStyle.Render(m.fileList.View())
 	} else {
-		leftPane = paneStyle.Render(m.repoList.View())
-		middlePane = focusedStyle.Render(m.fileList.View())
+		repoPane = paneStyle.Render(m.repoList.View())
+		filePane = focusedStyle.Render(m.fileList.View())
 	}
-	rightPane := paneStyle.Render(m.diffView.View())
+	
+	// Create the left column by joining repo and file lists vertically
+	leftColumn := lipgloss.JoinVertical(
+		lipgloss.Left,
+		repoPane,
+		filePane,
+	)
+	
+	// Create the right column with the diff view
+	rightColumn := paneStyle.Render(m.diffView.View())
 
+	// Join the two columns horizontally
 	content := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		leftPane,
-		middlePane,
-		rightPane,
+		leftColumn,
+		rightColumn,
 	)
 
 	helpText := "Press 'o' to add repository, 'r' to refresh, 'q' to quit, Tab to switch panes, ↑↓ to navigate, Enter to open lazygit"
