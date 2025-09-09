@@ -32,21 +32,21 @@ const (
 )
 
 type model struct {
-	config           *Config
-	mode             mode
-	focused          focusedPane
-	width            int
-	height           int
-	repoList         list.Model
-	fileList         list.Model
-	diffView         viewport.Model
-	filePicker       filepicker.Model
-	selectedRepo     int
-	selectedFile     int
-	gitStatuses      map[string]GitStatus
-	currentDiff      string
-	launchLazyGit    bool
-	lazyGitRepo      string
+	config        *Config
+	mode          mode
+	focused       focusedPane
+	width         int
+	height        int
+	repoList      list.Model
+	fileList      list.Model
+	diffView      viewport.Model
+	filePicker    filepicker.Model
+	selectedRepo  int
+	selectedFile  int
+	gitStatuses   map[string]GitStatus
+	currentDiff   string
+	launchLazyGit bool
+	lazyGitRepo   string
 }
 
 type repoItem struct {
@@ -55,7 +55,7 @@ type repoItem struct {
 }
 
 func (i repoItem) FilterValue() string { return i.path }
-func (i repoItem) Title() string       { 
+func (i repoItem) Title() string {
 	if i.status.HasError {
 		return fmt.Sprintf("❌ %s", i.path)
 	}
@@ -64,7 +64,7 @@ func (i repoItem) Title() string       {
 	}
 	return fmt.Sprintf("🔄 %s (%d)", i.path, len(i.status.Files))
 }
-func (i repoItem) Description() string { 
+func (i repoItem) Description() string {
 	if i.status.HasError {
 		return i.status.Error
 	}
@@ -110,12 +110,12 @@ func applySyntaxHighlighting(content, filePath string) string {
 	}
 
 	// Check if this is a git diff format
-	isDiff := strings.Contains(content, "diff --git") || 
-		strings.Contains(content, "@@") || 
+	isDiff := strings.Contains(content, "diff --git") ||
+		strings.Contains(content, "@@") ||
 		strings.HasPrefix(content, "New file:")
 
 	var lexer chroma.Lexer
-	
+
 	if isDiff {
 		// Use diff lexer for git diff output
 		lexer = lexers.Get("diff")
@@ -123,7 +123,7 @@ func applySyntaxHighlighting(content, filePath string) string {
 		// For new files, try to detect lexer by file extension
 		lexer = lexers.Match(filePath)
 	}
-	
+
 	// Fallback to plain text if no lexer found
 	if lexer == nil {
 		lexer = lexers.Fallback
@@ -222,7 +222,7 @@ func (m *model) updateFileList() {
 	if m.selectedRepo >= len(m.config.Repositories) {
 		return
 	}
-	
+
 	repo := m.config.Repositories[m.selectedRepo]
 	status, exists := m.gitStatuses[repo]
 	if !exists || status.HasError {
@@ -265,7 +265,7 @@ func (m *model) updateDiff() {
 	if m.selectedFile >= 0 && m.selectedFile < len(items) {
 		fileItem := items[m.selectedFile].(fileItem)
 		repo := m.config.Repositories[m.selectedRepo]
-		
+
 		diff, err := getFileDiff(repo, fileItem.gitFile.Path)
 		if err != nil {
 			m.currentDiff = fmt.Sprintf("Error getting diff: %s", err.Error())
@@ -296,32 +296,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		
+
 		// Create a style to calculate frame size including borders and padding
 		frameStyle := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			Padding(0, 1)
-		
+
 		// Calculate frame overhead (borders + padding)
 		frameWidth, frameHeight := frameStyle.GetFrameSize()
-		
+
 		// 2-column layout: left column (40%) for repo and file lists, right column (60%) for diff
 		leftColumnWidth := int(float64(m.width) * 0.4)
 		rightColumnWidth := m.width - leftColumnWidth
-		
+
 		// Help text takes up some vertical space
 		helpHeight := 2 // Help text + some padding
 		availableHeight := m.height - helpHeight
-		
+
 		// Left column is split vertically: repositories (40%) and files (60%)
 		// Each component gets the full left column width and will have its own borders
 		leftPaneContentWidth := leftColumnWidth - frameWidth
 		rightPaneContentWidth := rightColumnWidth - frameWidth
-		
-		repoHeight := int(float64(availableHeight) * 0.4) - frameHeight
+
+		repoHeight := int(float64(availableHeight)*0.4) - frameHeight
 		fileHeight := availableHeight - repoHeight - frameHeight - frameHeight // Subtract frame overhead for both components
 		diffHeight := availableHeight - frameHeight
-		
+
 		m.repoList.SetSize(leftPaneContentWidth, repoHeight)
 		m.fileList.SetSize(leftPaneContentWidth, fileHeight)
 		m.diffView.Width = rightPaneContentWidth
@@ -437,18 +437,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateFileList()
 			}
 		}
-		
+
 		// Only update non-focused components
 		if m.focused != focusRepo {
 			m.repoList, cmd = m.repoList.Update(msg)
 			cmds = append(cmds, cmd)
 		}
-		
+
 		if m.focused != focusFile {
 			m.fileList, cmd = m.fileList.Update(msg)
 			cmds = append(cmds, cmd)
 		}
-		
+
 		m.diffView, cmd = m.diffView.Update(msg)
 		cmds = append(cmds, cmd)
 
@@ -468,7 +468,7 @@ func (m model) View() string {
 	// Calculate left column width for proper pane sizing
 	leftColumnWidth := int(float64(m.width) * 0.4)
 	rightColumnWidth := m.width - leftColumnWidth
-	
+
 	paneStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		Padding(0, 1).
@@ -479,7 +479,7 @@ func (m model) View() string {
 		BorderForeground(lipgloss.Color("62")).
 		Padding(0, 1).
 		Width(leftColumnWidth)
-		
+
 	rightPaneStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		Padding(0, 1).
@@ -494,14 +494,14 @@ func (m model) View() string {
 		repoPane = paneStyle.Render(m.repoList.View())
 		filePane = focusedStyle.Render(m.fileList.View())
 	}
-	
+
 	// Create the left column by joining repo and file lists vertically
 	leftColumn := lipgloss.JoinVertical(
 		lipgloss.Left,
 		repoPane,
 		filePane,
 	)
-	
+
 	// Create the right column with the diff view
 	rightColumn := rightPaneStyle.Render(m.diffView.View())
 
@@ -519,7 +519,6 @@ func (m model) View() string {
 
 	return lipgloss.JoinVertical(lipgloss.Left, content, help)
 }
-
 
 func main() {
 	m, err := initialModel()

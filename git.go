@@ -53,12 +53,12 @@ func checkGitStatus(repoPath string) GitStatus {
 		if len(line) >= 3 {
 			status := strings.TrimSpace(line[:2])
 			path := strings.TrimSpace(line[2:])
-			
+
 			// Remove quotes if git added them for paths with special characters
 			if strings.HasPrefix(path, "\"") && strings.HasSuffix(path, "\"") {
 				path = path[1 : len(path)-1]
 			}
-			
+
 			result.Files = append(result.Files, GitFile{
 				Path:   path,
 				Status: status,
@@ -80,15 +80,15 @@ func getFileDiff(repoPath, filePath string) (string, error) {
 	cmd := exec.Command("git", "diff", "HEAD", "--", filePath)
 	cmd.Dir = repoPath
 	output, err := cmd.Output()
-	
+
 	// If no working directory changes, try staged changes
-	if (err != nil || len(output) == 0) {
+	if err != nil || len(output) == 0 {
 		cmd = exec.Command("git", "diff", "--cached", "--", filePath)
 		cmd.Dir = repoPath
 		output, err = cmd.Output()
-		
+
 		// If no staged changes and file is untracked, show file content
-		if (err != nil || len(output) == 0) {
+		if err != nil || len(output) == 0 {
 			cmd = exec.Command("git", "status", "--porcelain", "--", filePath)
 			cmd.Dir = repoPath
 			statusOutput, statusErr := cmd.Output()
@@ -103,7 +103,7 @@ func getFileDiff(repoPath, filePath string) (string, error) {
 			}
 		}
 	}
-	
+
 	if err != nil {
 		return "", err
 	}
