@@ -4,7 +4,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/formatters"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -96,6 +101,59 @@ func getStatusDescription(status string) string {
 	default:
 		return "Unknown"
 	}
+}
+
+// applySyntaxHighlighting applies syntax highlighting to diff content
+func applySyntaxHighlighting(content, filePath string) string {
+	if content == "" {
+		return content
+	}
+
+	// Check if this is a git diff format
+	isDiff := strings.Contains(content, "diff --git") || 
+		strings.Contains(content, "@@") || 
+		strings.HasPrefix(content, "New file:")
+
+	var lexer chroma.Lexer
+	
+	if isDiff {
+		// Use diff lexer for git diff output
+		lexer = lexers.Get("diff")
+	} else {
+		// For new files, try to detect lexer by file extension
+		lexer = lexers.Match(filePath)
+	}
+	
+	// Fallback to plain text if no lexer found
+	if lexer == nil {
+		lexer = lexers.Fallback
+	}
+
+	// Use a terminal-friendly style
+	style := styles.Get("github-dark")
+	if style == nil {
+		style = styles.Fallback
+	}
+
+	// Create a 16-color terminal formatter for better compatibility
+	formatter := formatters.Get("terminal16m")
+	if formatter == nil {
+		formatter = formatters.Fallback
+	}
+
+	// Apply syntax highlighting
+	var buf strings.Builder
+	iterator, err := lexer.Tokenise(nil, content)
+	if err != nil {
+		return content // Return original content if highlighting fails
+	}
+
+	err = formatter.Format(&buf, style, iterator)
+	if err != nil {
+		return content // Return original content if formatting fails
+	}
+
+	return buf.String()
 }
 
 func initialModel() (model, error) {
@@ -214,7 +272,9 @@ func (m *model) updateDiff() {
 		} else if diff == "" {
 			m.currentDiff = fmt.Sprintf("No diff available for: %s\n\nThis could mean:\n- File is newly added (not tracked)\n- File is staged but no changes in working directory\n- Binary file", fileItem.gitFile.Path)
 		} else {
-			m.currentDiff = diff
+			// Apply syntax highlighting to the diff content
+			highlightedDiff := applySyntaxHighlighting(diff, fileItem.gitFile.Path)
+			m.currentDiff = highlightedDiff
 		}
 		m.diffView.SetContent(m.currentDiff)
 		m.diffView.GotoTop()
