@@ -77,3 +77,26 @@ func (c *Config) addRepositoryWithPath(path string) bool {
 	c.Repositories = append(c.Repositories, absPath)
 	return true // successfully added
 }
+
+func (c *Config) removeRepository(path string) bool {
+	// Convert path to absolute for comparison
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		absPath = path // fallback to original path
+	}
+
+	// Find and remove the repository using absolute paths
+	for i, repo := range c.Repositories {
+		existingAbs, err := filepath.Abs(repo)
+		if err != nil {
+			existingAbs = repo // fallback to original path
+		}
+		if existingAbs == absPath {
+			// Remove the repository by creating a new slice without this element
+			c.Repositories = append(c.Repositories[:i], c.Repositories[i+1:]...)
+			return true // successfully removed
+		}
+	}
+	
+	return false // repository not found
+}

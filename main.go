@@ -207,6 +207,33 @@ func listRepositoriesFromCommandLine() error {
 	return nil
 }
 
+func deleteRepositoryFromCommandLine(path string) error {
+	// Load config
+	config, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Expand path to absolute path for comparison
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+
+	// Remove repository
+	if config.removeRepository(absPath) {
+		// Save config
+		if err := config.saveConfig(); err != nil {
+			return fmt.Errorf("failed to save config: %w", err)
+		}
+		fmt.Printf("Removed repository: %s\n", absPath)
+	} else {
+		fmt.Printf("Repository not found: %s\n", absPath)
+	}
+
+	return nil
+}
+
 func initialModel() (model, error) {
 	config, err := loadConfig()
 	if err != nil {
@@ -532,6 +559,7 @@ func main() {
 	// Parse command line flags
 	addRepo := flag.String("a", "", "Add a repository to the config")
 	listRepos := flag.Bool("l", false, "List repositories in the config")
+	deleteRepo := flag.String("d", "", "Delete a repository from the config")
 	flag.Parse()
 
 	// Handle add repository command
@@ -549,6 +577,16 @@ func main() {
 		err := listRepositoriesFromCommandLine()
 		if err != nil {
 			fmt.Printf("Error listing repositories: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Handle delete repository command
+	if *deleteRepo != "" {
+		err := deleteRepositoryFromCommandLine(*deleteRepo)
+		if err != nil {
+			fmt.Printf("Error deleting repository: %v\n", err)
 			os.Exit(1)
 		}
 		return
