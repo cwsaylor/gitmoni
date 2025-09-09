@@ -379,12 +379,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		helpHeight := 2 // Help text + some padding
 		availableHeight := m.height - helpHeight
 
-		// Left column is split vertically: repositories (40%) and files (60%)
+		// Left column is split vertically: repositories (70%) and files (30%)
 		// Each component gets the full left column width and will have its own borders
 		leftPaneContentWidth := leftColumnWidth - frameWidth
 		rightPaneContentWidth := rightColumnWidth - frameWidth
 
-		repoHeight := int(float64(availableHeight)*0.4) - frameHeight
+		repoHeight := int(float64(availableHeight)*0.7) - frameHeight
 		fileHeight := availableHeight - repoHeight - frameHeight - frameHeight // Subtract frame overhead for both components
 		diffHeight := availableHeight - frameHeight
 
