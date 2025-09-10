@@ -24,6 +24,7 @@ type focusedPane int
 const (
 	focusRepo focusedPane = iota
 	focusFile
+	focusDiff
 )
 
 type model struct {
@@ -433,9 +434,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyMsg:
 			switch msg.String() {
 			case "tab":
-				// Switch focus between repo and file panes
+				// Switch focus between repo, file, and diff panes
 				if m.focused == focusRepo {
 					m.focused = focusFile
+				} else if m.focused == focusFile {
+					m.focused = focusDiff
 				} else {
 					m.focused = focusRepo
 				}
@@ -466,6 +469,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.updateDiff()
 					}
 					return m, tea.Batch(cmds...)
+				} else if m.focused == focusDiff {
+					// Handle diff pane scrolling
+					m.diffView, cmd = m.diffView.Update(msg)
+					cmds = append(cmds, cmd)
+					return m, tea.Batch(cmds...)
 				}
 			case "down", "j":
 				if m.focused == focusRepo {
@@ -494,6 +502,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.updateDiff()
 					}
 					return m, tea.Batch(cmds...)
+				} else if m.focused == focusDiff {
+					// Handle diff pane scrolling
+					m.diffView, cmd = m.diffView.Update(msg)
+					cmds = append(cmds, cmd)
+					return m, tea.Batch(cmds...)
 				}
 			case "r":
 				m.updateGitStatuses()
@@ -519,8 +532,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
-	m.diffView, cmd = m.diffView.Update(msg)
-	cmds = append(cmds, cmd)
+	if m.focused != focusDiff {
+		m.diffView, cmd = m.diffView.Update(msg)
+		cmds = append(cmds, cmd)
+	}
 
 
 	return m, tea.Batch(cmds...)
@@ -549,13 +564,21 @@ func (m model) View() string {
 		Width(rightColumnWidth)
 
 	// Apply focused styling to the current pane
-	var repoPane, filePane string
+	var repoPane, filePane, diffPane string
 	if m.focused == focusRepo {
 		repoPane = focusedStyle.Render(m.repoList.View())
 		filePane = paneStyle.Render(m.fileList.View())
-	} else {
+		diffPane = rightPaneStyle.Render(m.diffView.View())
+	} else if m.focused == focusFile {
 		repoPane = paneStyle.Render(m.repoList.View())
 		filePane = focusedStyle.Render(m.fileList.View())
+		diffPane = rightPaneStyle.Render(m.diffView.View())
+	} else {
+		repoPane = paneStyle.Render(m.repoList.View())
+		filePane = paneStyle.Render(m.fileList.View())
+		diffPane = rightPaneStyle.
+			BorderForeground(lipgloss.Color("62")).
+			Render(m.diffView.View())
 	}
 
 	// Create the left column by joining repo and file lists vertically
@@ -566,7 +589,7 @@ func (m model) View() string {
 	)
 
 	// Create the right column with the diff view
-	rightColumn := rightPaneStyle.Render(m.diffView.View())
+	rightColumn := diffPane
 
 	// Join the two columns horizontally
 	content := lipgloss.JoinHorizontal(
