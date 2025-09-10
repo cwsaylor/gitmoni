@@ -49,22 +49,36 @@ type repoItem struct {
 
 func (i repoItem) FilterValue() string { return i.path }
 func (i repoItem) Title() string {
+	pullIcon := ""
+	if i.status.HasRemote && i.status.NeedsPull {
+		pullIcon = "⬇️ "
+	}
+	
 	if i.status.HasError {
-		return fmt.Sprintf("❌ %s", i.path)
+		return fmt.Sprintf("❌ %s%s", pullIcon, i.path)
 	}
 	if len(i.status.Files) == 0 {
-		return fmt.Sprintf("✅ %s", i.path)
+		return fmt.Sprintf("✅ %s%s", pullIcon, i.path)
 	}
-	return fmt.Sprintf("🔄 %s (%d)", i.path, len(i.status.Files))
+	return fmt.Sprintf("🔄 %s%s (%d)", pullIcon, i.path, len(i.status.Files))
 }
 func (i repoItem) Description() string {
 	if i.status.HasError {
 		return i.status.Error
 	}
+	
+	baseDesc := ""
 	if len(i.status.Files) == 0 {
-		return "No changes"
+		baseDesc = "No changes"
+	} else {
+		baseDesc = fmt.Sprintf("%d changed files", len(i.status.Files))
 	}
-	return fmt.Sprintf("%d changed files", len(i.status.Files))
+	
+	if i.status.HasRemote && i.status.RemoteStatus != "" {
+		return fmt.Sprintf("%s • %s", baseDesc, i.status.RemoteStatus)
+	}
+	
+	return baseDesc
 }
 
 type fileItem struct {
@@ -352,6 +366,12 @@ func (m *model) updateDiff() {
 	}
 }
 
+func (m *model) fetchAllRemotes() {
+	for _, repo := range m.config.Repositories {
+		fetchRemoteUpdates(repo) // Don't block on errors
+	}
+}
+
 func (m model) Init() tea.Cmd {
 	return nil
 }
@@ -479,6 +499,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateGitStatuses()
 				m.updateRepoList()
 				m.updateFileList()
+			case "f":
+				// Fetch remote updates for all repositories
+				go m.fetchAllRemotes()
+				m.updateGitStatuses()
+				m.updateRepoList()
+				m.updateFileList()
 			}
 		}
 
@@ -549,7 +575,7 @@ func (m model) View() string {
 		rightColumn,
 	)
 
-	helpText := fmt.Sprintf("Press 'r' to refresh, 'q' to quit, Tab to switch panes, ↑↓ to navigate, Enter to open %s", m.config.EnterCommandBinary)
+	helpText := fmt.Sprintf("Press 'r' to refresh, 'f' to fetch remotes, 'q' to quit, Tab to switch panes, ↑↓ to navigate, Enter to open %s", m.config.EnterCommandBinary)
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Render(helpText)
