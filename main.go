@@ -457,7 +457,7 @@ func (m *model) updateDiff() {
 	}
 }
 
-// fetchRemotesCmd returns a command that fetches all remotes in the background
+// fetchRemotesCmd returns a command that fetches all remotes concurrently
 func fetchRemotesCmd(repos []string) tea.Cmd {
 	var cmds []tea.Cmd
 	for _, repo := range repos {
@@ -468,7 +468,7 @@ func fetchRemotesCmd(repos []string) tea.Cmd {
 		})
 	}
 
-	return tea.Sequence(cmds...)
+	return tea.Batch(cmds...)
 }
 
 func (m model) Init() tea.Cmd {
