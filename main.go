@@ -31,22 +31,34 @@ const (
 // fetchCompleteMsg is sent when remote fetching is complete
 type fetchCompleteMsg struct{}
 
+// repoFetchStartMsg is sent when a specific repo starts fetching
+type repoFetchStartMsg struct {
+	repo string
+}
+
+// repoFetchCompleteMsg is sent when a specific repo completes fetching
+type repoFetchCompleteMsg struct {
+	repo string
+}
+
 type model struct {
-	config        *Config
-	focused       focusedPane
-	width         int
-	height        int
-	repoList      list.Model
-	fileList      list.Model
-	diffView      viewport.Model
-	selectedRepo  int
-	selectedFile  int
-	gitStatuses   map[string]GitStatus
-	currentDiff   string
-	launchLazyGit bool
-	lazyGitRepo   string
-	isFetching    bool
-	spinner       spinner.Model
+	config          *Config
+	focused         focusedPane
+	width           int
+	height          int
+	repoList        list.Model
+	fileList        list.Model
+	diffView        viewport.Model
+	selectedRepo    int
+	selectedFile    int
+	gitStatuses     map[string]GitStatus
+	currentDiff     string
+	launchLazyGit   bool
+	lazyGitRepo     string
+	isFetching      bool
+	spinner         spinner.Model
+	fetchingRepos   map[string]bool // Track which repos are currently fetching
+	repoSpinners    map[string]spinner.Model // Store spinners for each repo
 }
 
 // Icon represents the different icon types we use
@@ -78,9 +90,11 @@ func getIcons(iconStyle string) Icon {
 }
 
 type repoItem struct {
-	path      string
-	status    GitStatus
-	iconStyle string
+	path       string
+	status     GitStatus
+	iconStyle  string
+	isFetching bool
+	spinner    spinner.Model
 }
 
 func (i repoItem) FilterValue() string { return i.path }
@@ -110,18 +124,23 @@ func (i repoItem) Description() string {
 	if i.status.HasError {
 		return i.status.Error
 	}
-	
+
 	baseDesc := ""
 	if len(i.status.Files) == 0 {
 		baseDesc = "No changes"
 	} else {
 		baseDesc = fmt.Sprintf("%d changed files", len(i.status.Files))
 	}
-	
+
+	// Show spinner and "Updating" when fetching
+	if i.isFetching {
+		return fmt.Sprintf("%s • %s Updating", baseDesc, i.spinner.View())
+	}
+
 	if i.status.HasRemote && i.status.RemoteStatus != "" {
 		return fmt.Sprintf("%s • %s", baseDesc, i.status.RemoteStatus)
 	}
-	
+
 	return baseDesc
 }
 
@@ -319,14 +338,16 @@ func initialModel() (model, error) {
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63")) // Bright blue color
 
 	m := model{
-		config:      config,
-		focused:     focusRepo,
-		repoList:    repoList,
-		fileList:    fileList,
-		diffView:    diffView,
-		gitStatuses: make(map[string]GitStatus),
-		spinner:     s,
-		isFetching:  true, // Start in fetching state
+		config:        config,
+		focused:       focusRepo,
+		repoList:      repoList,
+		fileList:      fileList,
+		diffView:      diffView,
+		gitStatuses:   make(map[string]GitStatus),
+		spinner:       s,
+		isFetching:    true, // Start in fetching state
+		fetchingRepos: make(map[string]bool),
+		repoSpinners:  make(map[string]spinner.Model),
 	}
 
 	if len(config.Repositories) > 0 {
@@ -352,7 +373,23 @@ func (m *model) updateRepoList() {
 		if !exists {
 			status = GitStatus{Path: repo, HasError: true, Error: "Status not loaded"}
 		}
-		items = append(items, repoItem{path: repo, status: status, iconStyle: m.config.IconStyle})
+
+		// Get or create spinner for this repo
+		s, exists := m.repoSpinners[repo]
+		if !exists {
+			s = spinner.New()
+			s.Spinner = spinner.Dot
+			s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+			m.repoSpinners[repo] = s
+		}
+
+		items = append(items, repoItem{
+			path:       repo,
+			status:     status,
+			iconStyle:  m.config.IconStyle,
+			isFetching: m.fetchingRepos[repo],
+			spinner:    s,
+		})
 	}
 	m.repoList.SetItems(items)
 }
@@ -422,21 +459,40 @@ func (m *model) updateDiff() {
 
 // fetchRemotesCmd returns a command that fetches all remotes in the background
 func fetchRemotesCmd(repos []string) tea.Cmd {
-	return func() tea.Msg {
-		for _, repo := range repos {
-			fetchRemoteUpdates(repo)
-		}
-		return fetchCompleteMsg{}
+	var cmds []tea.Cmd
+	for _, repo := range repos {
+		r := repo // Capture for closure
+		cmds = append(cmds, func() tea.Msg {
+			fetchRemoteUpdates(r)
+			return repoFetchCompleteMsg{repo: r}
+		})
 	}
+
+	return tea.Sequence(cmds...)
 }
 
 func (m model) Init() tea.Cmd {
 	// Start spinner and fetch remotes in background
 	if m.isFetching && len(m.config.Repositories) > 0 {
-		return tea.Batch(
-			m.spinner.Tick,
-			fetchRemotesCmd(m.config.Repositories),
-		)
+		var cmds []tea.Cmd
+		// Mark all repos as fetching and start their spinners
+		for _, repo := range m.config.Repositories {
+			m.fetchingRepos[repo] = true
+			// Initialize and start each repo's spinner
+			if _, exists := m.repoSpinners[repo]; !exists {
+				s := spinner.New()
+				s.Spinner = spinner.Dot
+				s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+				m.repoSpinners[repo] = s
+			}
+			if s, exists := m.repoSpinners[repo]; exists {
+				cmds = append(cmds, s.Tick)
+			}
+		}
+		// Add global spinner and fetch command
+		cmds = append(cmds, m.spinner.Tick)
+		cmds = append(cmds, fetchRemotesCmd(m.config.Repositories))
+		return tea.Batch(cmds...)
 	}
 	return nil
 }
@@ -446,21 +502,53 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     var cmds []tea.Cmd
 
     switch msg := msg.(type) {
-    case fetchCompleteMsg:
-        // Fetching complete, update statuses and stop spinner
-        m.isFetching = false
-        m.updateGitStatuses()
+    case repoFetchCompleteMsg:
+        // Mark repo as no longer fetching and update its status
+        delete(m.fetchingRepos, msg.repo)
+        // Update just this repo's status
+        m.gitStatuses[msg.repo] = checkGitStatus(msg.repo)
         m.updateRepoList()
-        if len(m.fileList.Items()) > 0 {
-            m.updateDiff()
+        // If this was the selected repo, update the file list
+        if m.selectedRepo < len(m.config.Repositories) && m.config.Repositories[m.selectedRepo] == msg.repo {
+            m.updateFileList()
+            if len(m.fileList.Items()) > 0 {
+                m.updateDiff()
+            }
+        }
+        // Check if all repos are done fetching
+        if len(m.fetchingRepos) == 0 {
+            m.isFetching = false
+        } else {
+            // Continue spinner updates for remaining repos
+            return m, m.spinner.Tick
         }
         return m, nil
 
     case spinner.TickMsg:
         // Update spinner if we're still fetching
-        if m.isFetching {
+        if m.isFetching || len(m.fetchingRepos) > 0 {
+            var tickCmds []tea.Cmd
             m.spinner, cmd = m.spinner.Update(msg)
-            cmds = append(cmds, cmd)
+            if cmd != nil {
+                tickCmds = append(tickCmds, cmd)
+            }
+
+            // Update all fetching repo spinners and collect their commands
+            for repo := range m.fetchingRepos {
+                if s, exists := m.repoSpinners[repo]; exists {
+                    updatedSpinner, spinnerCmd := s.Update(msg)
+                    m.repoSpinners[repo] = updatedSpinner
+                    if spinnerCmd != nil {
+                        tickCmds = append(tickCmds, spinnerCmd)
+                    }
+                }
+            }
+
+            // Update the repo list to show new spinner states
+            m.updateRepoList()
+
+            // Continue ticking all spinners
+            return m, tea.Batch(tickCmds...)
         }
 
     case tea.WindowSizeMsg:
@@ -611,11 +699,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     		case "f":
     			// Fetch remote updates for all repositories asynchronously
     			if !m.isFetching {
+    				var fetchCmds []tea.Cmd
     				m.isFetching = true
-    				return m, tea.Batch(
-    					m.spinner.Tick,
-    					fetchRemotesCmd(m.config.Repositories),
-    				)
+    				// Mark all repos as fetching and start their spinners
+    				for _, repo := range m.config.Repositories {
+    					m.fetchingRepos[repo] = true
+    					// Ensure spinner exists and start it
+    					if _, exists := m.repoSpinners[repo]; !exists {
+    						s := spinner.New()
+    						s.Spinner = spinner.Dot
+    						s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+    						m.repoSpinners[repo] = s
+    					}
+    					if s, exists := m.repoSpinners[repo]; exists {
+    						fetchCmds = append(fetchCmds, s.Tick)
+    					}
+    				}
+    				m.updateRepoList() // Update to show spinners
+    				// Add global spinner and fetch command
+    				fetchCmds = append(fetchCmds, m.spinner.Tick)
+    				fetchCmds = append(fetchCmds, fetchRemotesCmd(m.config.Repositories))
+    				return m, tea.Batch(fetchCmds...)
     			}
     		default:
     			// Forward all other key events (e.g. PgUp/PgDn) to the focused pane only
