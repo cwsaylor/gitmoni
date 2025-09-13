@@ -85,13 +85,20 @@ func (i repoItem) Title() string {
 		pullIcon = icons.Pull + " "
 	}
 
+	title := ""
 	if i.status.HasError {
-		return fmt.Sprintf("%s %s%s", icons.Error, pullIcon, i.path)
+		title = fmt.Sprintf("%s %s%s", icons.Error, pullIcon, i.path)
+	} else if len(i.status.Files) == 0 {
+		title = fmt.Sprintf("%s %s%s", icons.Success, pullIcon, i.path)
+	} else {
+		title = fmt.Sprintf("%s %s%s (%d)", icons.Changed, pullIcon, i.path, len(i.status.Files))
 	}
-	if len(i.status.Files) == 0 {
-		return fmt.Sprintf("%s %s%s", icons.Success, pullIcon, i.path)
+
+	// Apply green color to repos with changes
+	if len(i.status.Files) > 0 && !i.status.HasError {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(title)
 	}
-	return fmt.Sprintf("%s %s%s (%d)", icons.Changed, pullIcon, i.path, len(i.status.Files))
+	return title
 }
 func (i repoItem) Description() string {
 	if i.status.HasError {
