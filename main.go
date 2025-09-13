@@ -693,11 +693,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     				return m, tea.Batch(cmds...)
     			}
     		case "r":
+    			// Refresh both local status and fetch remote updates
     			m.updateGitStatuses()
     			m.updateRepoList()
     			m.updateFileList()
-    		case "f":
-    			// Fetch remote updates for all repositories asynchronously
+
+    			// Also fetch remote updates for all repositories asynchronously
     			if !m.isFetching {
     				var fetchCmds []tea.Cmd
     				m.isFetching = true
@@ -839,7 +840,7 @@ func (m model) View() string {
             Render(" Fetching remote updates from repositories...")
         help = spinnerView + fetchText
     } else {
-        helpText := fmt.Sprintf("Press 'r' to refresh, 'f' to fetch remotes, 'q' to quit, Tab to switch panes, ↑↓/PgUp/PgDn to navigate, Enter to open %s", m.config.EnterCommandBinary)
+        helpText := fmt.Sprintf("Press 'r' to refresh, 'q' to quit, Tab to switch panes, ↑↓/PgUp/PgDn to navigate, Enter to open %s", m.config.EnterCommandBinary)
         help = lipgloss.NewStyle().
             Foreground(lipgloss.Color("240")).
             Width(m.width).
