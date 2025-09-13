@@ -458,6 +458,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     			} else {
     				m.focused = focusRepo
     			}
+    		case "shift+tab":
+    			// Switch focus backwards between repo, file, and diff panes
+    			if m.focused == focusRepo {
+    				m.focused = focusDiff
+    			} else if m.focused == focusFile {
+    				m.focused = focusRepo
+    			} else {
+    				m.focused = focusFile
+    			}
     		case "up", "k":
     			// Route navigation to the focused pane only
     			if m.focused == focusRepo {
