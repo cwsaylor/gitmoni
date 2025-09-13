@@ -10,9 +10,12 @@ A terminal user interface (TUI) for monitoring multiple local Git repositories w
 - **Multi-repository monitoring**: Track changes across multiple Git repositories from a single interface
 - **Real-time status**: View repository status with visual indicators (✅ clean, 🔄 changes, ❌ errors)
 - **Remote repository tracking**: Monitor if repositories need pulling from remote with ⬇️ indicator
+- **Automatic remote fetching**: Fetches remote updates on startup and refresh
+- **Animated spinners**: Shows per-repository animated spinners during fetch operations
+- **Concurrent operations**: Fetches all repositories in parallel for faster updates
 - **Three-pane tabbed interface**: Navigate between repositories, files, and diff view with Tab/Shift+Tab keys
 - **Command-line repository management**: Add (`-a`), list (`-l`), and delete (`-d`) repositories from command line
-- **Remote fetching**: Press `f` to fetch updates from all remotes
+- **Unified refresh**: Single `r` key refreshes both local status and fetches remote updates
 - **Syntax highlighting**: Colored diff output with support for multiple file types
 - **Configurable git client**: Supports lazygit or any other git client via configuration
 - **Customizable icons**: Choose between emoji or Nerd Font glyphs for status indicators
@@ -59,30 +62,12 @@ gitmoni -d  .
 
 ### Keyboard Shortcuts
 
-- **`r`** - Refresh all repository statuses
-- **`f`** - Fetch updates from all remotes
+- **`r`** - Refresh all repository statuses and fetch remote updates
 - **`Tab`** - Switch forward between repository, file, and diff panes
 - **`Shift+Tab`** - Switch backward between repository, file, and diff panes
 - **`↑/↓` or `k/j`** - Navigate up/down in current pane or scroll diff view
 - **`Enter`** - Launch configured git client (lazygit by default) for the selected repository
 - **`q` or `Ctrl+C`** - Quit the application
-
-### Interface Layout
-
-```
-┌─ Repositories       ─┐┌─ Diff View (60%) ───┐
-│ ✅ /path/to/repo1    ││ diff --git a/file   │
-│ 🔄⬇️ /path/to/repo2(3)││ @@ -1,3 +1,4 @@     │
-│ ❌ /path/to/repo3    ││ +added line         │
-├──────────────────────┤│ -removed line       │
-│ Changed Files (30%)  ││                     │
-│ M  src/main.go       ││                     │
-│ A  README.md         ││                     │
-│ ?? new_file.txt      ││                     │
-└──────────────────────┘└─────────────────────┘
-```
-
-The interface uses a 70/30 split for the repository and file lists in the left column (40% of screen), with the diff view taking up the right column (60% of screen). Use Tab to cycle through the three panes for navigation.
 
 ## Configuration
 
@@ -100,8 +85,8 @@ GitMoni stores its configuration in `~/.gitmoni.json`, or in the current directo
     "/home/user/project2",
     "/home/user/work/repo1"
   ],
-  "enter_command_binary": "lazygit",
-  "icon_style": "emoji"
+  "enter_command_binary": "lazygit -p $REPO",
+  "icon_style": "glyphs"
 }
 ```
 
@@ -121,7 +106,10 @@ You can add repositories in two ways:
 
 **Command Line:**
 ```bash
-./gitmoni -a /path/to/repository
+gitmoni -a /path/to/repository
+# or
+cd /path/to/repository
+gitmoni -a .
 ```
 
 **Configuration File:**
@@ -143,14 +131,8 @@ Examples:
 - VS Code:
   - `"enter_command_binary": "code $REPO"`
 
-- GitHub Desktop (via wrapper script):
-  1. Create `~/bin/open-github-desktop`:
-     ```bash
-     #!/usr/bin/env bash
-     open -a "GitHub Desktop" "$1"
-     ```
-     Make it executable: `chmod +x ~/bin/open-github-desktop`
-  2. Set in config: `"enter_command_binary": "~/bin/open-github-desktop $REPO"`
+- GitHub Desktop:
+  - `"enter_command_binary": "github open $REPO"`
 
 Default:
 
@@ -160,15 +142,9 @@ Default:
 
 ### Emoji Icons (default)
 - **✅** - Repository is clean (no changes)
-- **🔄** - Repository has changes (number in parentheses shows change count)
+- **🔄** - Repository has changes (number in parentheses shows change count, displayed in green)
 - **❌** - Error accessing repository or not a Git repository
 - **⬇️** - Repository needs to be pulled from remote (appears before repository path)
-
-### Nerd Font Glyphs
-- **** - Repository is clean (no changes)
-- **** - Repository has changes (number in parentheses shows change count)
-- **** - Error accessing repository or not a Git repository
-- **** - Repository needs to be pulled from remote (appears before repository path)
 
 ## File Status Codes
 
