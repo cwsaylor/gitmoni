@@ -1,6 +1,6 @@
 # GitMoni
 
-A terminal user interface (TUI) for monitoring multiple Git repositories with syntax-highlighted diffs and seamless lazygit integration.
+A terminal user interface (TUI) for monitoring multiple local Git repositories with syntax-highlighted diffs and lazygit/github desktop integration.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Go Version](https://img.shields.io/badge/go-1.25.1-blue.svg)
@@ -9,10 +9,14 @@ A terminal user interface (TUI) for monitoring multiple Git repositories with sy
 
 - **Multi-repository monitoring**: Track changes across multiple Git repositories from a single interface
 - **Real-time status**: View repository status with visual indicators (✅ clean, 🔄 changes, ❌ errors)
+- **Remote repository tracking**: Monitor if repositories need pulling from remote with ⬇️  indicator
+- **Three-pane tabbed interface**: Navigate between repositories, files, and diff view with Tab key
+- **Command-line repository management**: Add (`-a`), list (`-l`), and delete (`-d`) repositories from command line
+- **Remote fetching**: Press `f` to fetch updates from all remotes
 - **Syntax highlighting**: Colored diff output with support for multiple file types
-- **Lazygit integration**: Press Enter to launch lazygit for advanced Git operations
-- **Two-pane layout**: Navigate between repositories and files with keyboard shortcuts
-- **Configuration management**: Persistent repository list stored in `.gitmoni.json`
+- **Configurable git client**: Supports lazygit or any other git client via configuration
+- **Enhanced layout**: Responsive 70/30 split for repository and file lists
+- **Configuration management**: Persistent repository list stored in `~/.gitmoni.json`
 
 ## Installation
 
@@ -29,23 +33,36 @@ git clone git@github.com:cwsaylor/gitmoni.git
 cd gitmoni
 go build
 ```
+Copy the gitmoni binary to a local bin directory in your $PATH.
 
 ## Usage
 
 ### Starting GitMoni
 
 ```bash
-./gitmoni
+# Start the TUI interface
+gitmoni
+
+# Add a repository from command line
+gitmoni -a /path/to/repository
+
+# List all configured repositories
+gitmoni -l
+
+# Remove a repository from configuration
+gitmoni -d /path/to/repository
+# Or
+cd /path/to/repository
+gitmoni -d  .
 ```
 
 ### Keyboard Shortcuts
 
-- **`o`** - Add a new repository (opens file picker)
 - **`r`** - Refresh all repository statuses
-- **`Tab`** - Switch between repository and file panes
-- **`↑/↓` or `k/j`** - Navigate up/down in current pane
-- **`Enter`** - Launch lazygit for the selected repository
-- **`Esc`** - Cancel file picker mode
+- **`f`** - Fetch updates from all remotes
+- **`Tab`** - Switch between repository, file, and diff panes
+- **`↑/↓` or `k/j`** - Navigate up/down in current pane or scroll diff view
+- **`Enter`** - Launch configured git client (lazygit by default) for the selected repository
 - **`q` or `Ctrl+C`** - Quit the application
 
 ### Interface Layout
@@ -53,19 +70,21 @@ go build
 ```
 ┌─ Repositories (40%) ─┐┌─ Diff View (60%) ───┐
 │ ✅ /path/to/repo1    ││ diff --git a/file   │
-│ 🔄 /path/to/repo2 (3)││ @@ -1,3 +1,4 @@     │
+│ 🔄⬇️ /path/to/repo2(3)││ @@ -1,3 +1,4 @@     │
 │ ❌ /path/to/repo3    ││ +added line         │
 ├──────────────────────┤│ -removed line       │
-│ Changed Files        ││                     │
+│ Changed Files (30%)  ││                     │
 │ M  src/main.go       ││                     │
 │ A  README.md         ││                     │
 │ ?? new_file.txt      ││                     │
 └──────────────────────┘└─────────────────────┘
 ```
 
+The interface uses a 70/30 split for the repository and file lists in the left column (40% of screen), with the diff view taking up the right column (60% of screen). Use Tab to cycle through the three panes for navigation.
+
 ## Configuration
 
-GitMoni stores its configuration in `.gitmoni.json`. The application will look for this file in:
+GitMoni stores its configuration in `~/.gitmoni.json`, or in the current directory. The application will look for this file in:
 
 1. Current directory (`./.gitmoni.json`)
 2. Home directory (`~/.gitmoni.json`)
@@ -78,22 +97,36 @@ GitMoni stores its configuration in `.gitmoni.json`. The application will look f
     "/home/user/project1",
     "/home/user/project2",
     "/home/user/work/repo1"
-  ]
+  ],
+  "enter_command_binary": "lazygit"
 }
 ```
 
 ### Adding Repositories
 
-1. Press `o` to open the file picker
-2. Navigate to the repository directory
-3. Press `Enter` to add it to your monitored repositories
-4. The configuration is automatically saved
+You can add repositories in two ways:
+
+**Command Line:**
+```bash
+./gitmoni -a /path/to/repository
+```
+
+**Configuration File:**
+Manually edit `.gitmoni.json` and add repository paths to the `repositories` array.
+
+### Git Client Configuration
+
+You can configure which git client launches when pressing Enter by setting `enter_command_binary` in your configuration:
+
+- `"lazygit"` (default): Launches with `-p` flag for the repository path
+- `"github"` or other clients: Changes to repository directory and launches the client
 
 ## Git Status Indicators
 
 - **✅** - Repository is clean (no changes)
 - **🔄** - Repository has changes (number in parentheses shows change count)
 - **❌** - Error accessing repository or not a Git repository
+- **⬇️** - Repository needs to be pulled from remote (appears before repository path)
 
 ## File Status Codes
 
