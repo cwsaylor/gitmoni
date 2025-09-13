@@ -9,7 +9,7 @@ A terminal user interface (TUI) for monitoring multiple local Git repositories w
 
 - **Multi-repository monitoring**: Track changes across multiple Git repositories from a single interface
 - **Real-time status**: View repository status with visual indicators (✅ clean, 🔄 changes, ❌ errors)
-- **Remote repository tracking**: Monitor if repositories need pulling from remote with ⬇️  indicator
+- **Remote repository tracking**: Monitor if repositories need pulling from remote with ⬇️ indicator
 - **Three-pane tabbed interface**: Navigate between repositories, files, and diff view with Tab/Shift+Tab keys
 - **Command-line repository management**: Add (`-a`), list (`-l`), and delete (`-d`) repositories from command line
 - **Remote fetching**: Press `f` to fetch updates from all remotes
@@ -70,7 +70,7 @@ gitmoni -d  .
 ### Interface Layout
 
 ```
-┌─ Repositories (40%) ─┐┌─ Diff View (60%) ───┐
+┌─ Repositories       ─┐┌─ Diff View (60%) ───┐
 │ ✅ /path/to/repo1    ││ diff --git a/file   │
 │ 🔄⬇️ /path/to/repo2(3)││ @@ -1,3 +1,4 @@     │
 │ ❌ /path/to/repo3    ││ +added line         │
@@ -111,7 +111,7 @@ GitMoni stores its configuration in `~/.gitmoni.json`, or in the current directo
 - **`enter_command_binary`**: Command template to run when pressing Enter on a repository (see Git Client Configuration below)
 - **`icon_style`**: Display style for status indicators
   - `"emoji"` (default): Use emoji icons (❌ ✅ 🔄 ⬇️)
-  - `"glyphs"`: Use Nerd Font glyphs (    )
+  - `"glyphs"`: Use Nerd Font glyphs (   )
 
 **Note**: When using `"glyphs"`, you need a [Nerd Font](https://www.nerdfonts.com) installed in your terminal (e.g., Hack Nerd Font, FiraCode Nerd Font, etc.)
 
