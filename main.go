@@ -658,19 +658,25 @@ func main() {
 
 	// Check if we need to launch the configured binary
 	if result, ok := finalModel.(model); ok && result.launchLazyGit {
-		binary := result.config.EnterCommandBinary
-		
-		// Handle different binaries with their specific arguments
-		var cmd *exec.Cmd
-		if binary == "lazygit" {
-			// lazygit supports -p flag for specifying repo path
-			cmd = exec.Command(binary, "-p", result.lazyGitRepo)
-		} else {
-			// For other binaries, change directory and run without arguments
-			cmd = exec.Command(binary)
-			cmd.Dir = result.lazyGitRepo
+		commandTemplate := result.config.EnterCommandBinary
+
+		// Replace $REPO with the selected repository path
+		command := strings.ReplaceAll(commandTemplate, "$REPO", result.lazyGitRepo)
+
+		// Split the command into program and arguments
+		parts := strings.Fields(command)
+		if len(parts) == 0 {
+			return
 		}
-		
+
+		// Execute the command
+		var cmd *exec.Cmd
+		if len(parts) == 1 {
+			cmd = exec.Command(parts[0])
+		} else {
+			cmd = exec.Command(parts[0], parts[1:]...)
+		}
+
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
