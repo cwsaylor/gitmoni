@@ -169,7 +169,11 @@ func checkRemoteStatus(status *GitStatus) {
 	behindCount := strings.TrimSpace(string(behindOutput))
 	if behindCount != "0" {
 		status.NeedsPull = true
-		status.RemoteStatus = fmt.Sprintf("%s commits behind", behindCount)
+		if behindCount == "1" {
+			status.RemoteStatus = "1 commit behind"
+		} else {
+			status.RemoteStatus = fmt.Sprintf("%s commits behind", behindCount)
+		}
 	} else {
 		status.NeedsPull = false
 		status.RemoteStatus = "Up to date"

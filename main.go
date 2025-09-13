@@ -128,6 +128,8 @@ func (i repoItem) Description() string {
 	baseDesc := ""
 	if len(i.status.Files) == 0 {
 		baseDesc = "No changes"
+	} else if len(i.status.Files) == 1 {
+		baseDesc = "1 changed file"
 	} else {
 		baseDesc = fmt.Sprintf("%d changed files", len(i.status.Files))
 	}
