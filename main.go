@@ -380,11 +380,11 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-	var cmds []tea.Cmd
+    var cmd tea.Cmd
+    var cmds []tea.Cmd
 
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
+    switch msg := msg.(type) {
+    case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 
@@ -447,111 +447,132 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch msg.String() {
-			case "tab":
-				// Switch focus between repo, file, and diff panes
-				if m.focused == focusRepo {
-					m.focused = focusFile
-				} else if m.focused == focusFile {
-					m.focused = focusDiff
-				} else {
-					m.focused = focusRepo
-				}
-			case "up", "k":
-				if m.focused == focusRepo {
-					// Let the list handle the navigation, then sync our state
-					m.repoList, cmd = m.repoList.Update(msg)
-					cmds = append(cmds, cmd)
-					// Update our selection tracking and file list
-					if m.repoList.SelectedItem() != nil {
-						m.selectedRepo = m.repoList.Index()
-						m.updateFileList()
-						if len(m.fileList.Items()) > 0 {
-							m.selectFile(0)
-						} else {
-							m.currentDiff = ""
-							m.diffView.SetContent("")
-						}
-					}
-					return m, tea.Batch(cmds...)
-				} else if m.focused == focusFile {
-					// Let the list handle the navigation, then sync our state
-					m.fileList, cmd = m.fileList.Update(msg)
-					cmds = append(cmds, cmd)
-					// Update our selection tracking and diff
-					if m.fileList.SelectedItem() != nil {
-						m.selectedFile = m.fileList.Index()
-						m.updateDiff()
-					}
-					return m, tea.Batch(cmds...)
-				} else if m.focused == focusDiff {
-					// Handle diff pane scrolling
-					m.diffView, cmd = m.diffView.Update(msg)
-					cmds = append(cmds, cmd)
-					return m, tea.Batch(cmds...)
-				}
-			case "down", "j":
-				if m.focused == focusRepo {
-					// Let the list handle the navigation, then sync our state
-					m.repoList, cmd = m.repoList.Update(msg)
-					cmds = append(cmds, cmd)
-					// Update our selection tracking and file list
-					if m.repoList.SelectedItem() != nil {
-						m.selectedRepo = m.repoList.Index()
-						m.updateFileList()
-						if len(m.fileList.Items()) > 0 {
-							m.selectFile(0)
-						} else {
-							m.currentDiff = ""
-							m.diffView.SetContent("")
-						}
-					}
-					return m, tea.Batch(cmds...)
-				} else if m.focused == focusFile {
-					// Let the list handle the navigation, then sync our state
-					m.fileList, cmd = m.fileList.Update(msg)
-					cmds = append(cmds, cmd)
-					// Update our selection tracking and diff
-					if m.fileList.SelectedItem() != nil {
-						m.selectedFile = m.fileList.Index()
-						m.updateDiff()
-					}
-					return m, tea.Batch(cmds...)
-				} else if m.focused == focusDiff {
-					// Handle diff pane scrolling
-					m.diffView, cmd = m.diffView.Update(msg)
-					cmds = append(cmds, cmd)
-					return m, tea.Batch(cmds...)
-				}
-			case "r":
-				m.updateGitStatuses()
-				m.updateRepoList()
-				m.updateFileList()
-			case "f":
-				// Fetch remote updates for all repositories
-				go m.fetchAllRemotes()
-				m.updateGitStatuses()
-				m.updateRepoList()
-				m.updateFileList()
-			}
-		}
+    	case tea.KeyMsg:
+    		switch msg.String() {
+    		case "tab":
+    			// Switch focus between repo, file, and diff panes
+    			if m.focused == focusRepo {
+    				m.focused = focusFile
+    			} else if m.focused == focusFile {
+    				m.focused = focusDiff
+    			} else {
+    				m.focused = focusRepo
+    			}
+    		case "up", "k":
+    			// Route navigation to the focused pane only
+    			if m.focused == focusRepo {
+    				m.repoList, cmd = m.repoList.Update(msg)
+    				cmds = append(cmds, cmd)
+    				if m.repoList.SelectedItem() != nil {
+    					m.selectedRepo = m.repoList.Index()
+    					m.updateFileList()
+    					if len(m.fileList.Items()) > 0 {
+    						m.selectFile(0)
+    					} else {
+    						m.currentDiff = ""
+    						m.diffView.SetContent("")
+    					}
+    				}
+    				return m, tea.Batch(cmds...)
+    			} else if m.focused == focusFile {
+    				m.fileList, cmd = m.fileList.Update(msg)
+    				cmds = append(cmds, cmd)
+    				if m.fileList.SelectedItem() != nil {
+    					m.selectedFile = m.fileList.Index()
+    					m.updateDiff()
+    				}
+    				return m, tea.Batch(cmds...)
+    			} else if m.focused == focusDiff {
+    				m.diffView, cmd = m.diffView.Update(msg)
+    				cmds = append(cmds, cmd)
+    				return m, tea.Batch(cmds...)
+    			}
+    		case "down", "j":
+    			// Route navigation to the focused pane only
+    			if m.focused == focusRepo {
+    				m.repoList, cmd = m.repoList.Update(msg)
+    				cmds = append(cmds, cmd)
+    				if m.repoList.SelectedItem() != nil {
+    					m.selectedRepo = m.repoList.Index()
+    					m.updateFileList()
+    					if len(m.fileList.Items()) > 0 {
+    						m.selectFile(0)
+    					} else {
+    						m.currentDiff = ""
+    						m.diffView.SetContent("")
+    					}
+    				}
+    				return m, tea.Batch(cmds...)
+    			} else if m.focused == focusFile {
+    				m.fileList, cmd = m.fileList.Update(msg)
+    				cmds = append(cmds, cmd)
+    				if m.fileList.SelectedItem() != nil {
+    					m.selectedFile = m.fileList.Index()
+    					m.updateDiff()
+    				}
+    				return m, tea.Batch(cmds...)
+    			} else if m.focused == focusDiff {
+    				m.diffView, cmd = m.diffView.Update(msg)
+    				cmds = append(cmds, cmd)
+    				return m, tea.Batch(cmds...)
+    			}
+    		case "r":
+    			m.updateGitStatuses()
+    			m.updateRepoList()
+    			m.updateFileList()
+    		case "f":
+    			// Fetch remote updates for all repositories
+    			go m.fetchAllRemotes()
+    			m.updateGitStatuses()
+    			m.updateRepoList()
+    			m.updateFileList()
+    		default:
+    			// Forward all other key events (e.g. PgUp/PgDn) to the focused pane only
+    			if m.focused == focusRepo {
+    				m.repoList, cmd = m.repoList.Update(msg)
+    				cmds = append(cmds, cmd)
+    				if m.repoList.SelectedItem() != nil {
+    					m.selectedRepo = m.repoList.Index()
+    					m.updateFileList()
+    					if len(m.fileList.Items()) > 0 {
+    						m.selectFile(0)
+    					} else {
+    						m.currentDiff = ""
+    						m.diffView.SetContent("")
+    					}
+    				}
+    				return m, tea.Batch(cmds...)
+    			} else if m.focused == focusFile {
+    				m.fileList, cmd = m.fileList.Update(msg)
+    				cmds = append(cmds, cmd)
+    				if m.fileList.SelectedItem() != nil {
+    					m.selectedFile = m.fileList.Index()
+    					m.updateDiff()
+    				}
+    				return m, tea.Batch(cmds...)
+    			} else if m.focused == focusDiff {
+    				m.diffView, cmd = m.diffView.Update(msg)
+    				cmds = append(cmds, cmd)
+    				return m, tea.Batch(cmds...)
+    			}
+    		}
+    	}
 
-	// Only update non-focused components
-	if m.focused != focusRepo {
-		m.repoList, cmd = m.repoList.Update(msg)
-		cmds = append(cmds, cmd)
-	}
-
-	if m.focused != focusFile {
-		m.fileList, cmd = m.fileList.Update(msg)
-		cmds = append(cmds, cmd)
-	}
-
-	if m.focused != focusDiff {
-		m.diffView, cmd = m.diffView.Update(msg)
-		cmds = append(cmds, cmd)
-	}
+    // Only propagate non-key messages to other components to avoid duplicate key handling
+    if _, isKey := msg.(tea.KeyMsg); !isKey {
+        if m.focused != focusRepo {
+            m.repoList, cmd = m.repoList.Update(msg)
+            cmds = append(cmds, cmd)
+        }
+        if m.focused != focusFile {
+            m.fileList, cmd = m.fileList.Update(msg)
+            cmds = append(cmds, cmd)
+        }
+        if m.focused != focusDiff {
+            m.diffView, cmd = m.diffView.Update(msg)
+            cmds = append(cmds, cmd)
+        }
+    }
 
 
 	return m, tea.Batch(cmds...)
@@ -614,12 +635,15 @@ func (m model) View() string {
 		rightColumn,
 	)
 
-	helpText := fmt.Sprintf("Press 'r' to refresh, 'f' to fetch remotes, 'q' to quit, Tab to switch panes, ↑↓ to navigate, Enter to open %s", m.config.EnterCommandBinary)
-	help := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Render(helpText)
+    helpText := fmt.Sprintf("Press 'r' to refresh, 'f' to fetch remotes, 'q' to quit, Tab to switch panes, ↑↓/PgUp/PgDn to navigate, Enter to open %s", m.config.EnterCommandBinary)
+    help := lipgloss.NewStyle().
+        Foreground(lipgloss.Color("240")).
+        Width(m.width). // ensure wrapping matches terminal width
+        Render(helpText)
 
-	return lipgloss.JoinVertical(lipgloss.Left, content, help)
+    joined := lipgloss.JoinVertical(lipgloss.Left, content, help)
+    // Force the final frame to exactly match the terminal size to prevent scrollback growth
+    return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, joined)
 }
 
 func main() {
@@ -665,7 +689,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+    // Use the alternate screen to avoid polluting scrollback while the TUI runs.
+    // If running inside tmux, ensure: set -g alternate-screen on
+    p := tea.NewProgram(m, tea.WithAltScreen())
 	finalModel, err := p.Run()
 	if err != nil {
 		fmt.Printf("Error running program: %v\n", err)
