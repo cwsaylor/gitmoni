@@ -398,7 +398,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// 2-column layout: left column (40%) for repo and file lists, right column (60%) for diff
 		leftColumnWidth := int(float64(m.width) * 0.4)
-		rightColumnWidth := m.width - leftColumnWidth
+		rightColumnWidth := m.width - leftColumnWidth - 4 // Subtract 1 to prevent overflow
 
 		// Help text takes up some vertical space
 		helpHeight := 2 // Help text + some padding
@@ -582,7 +582,7 @@ func (m model) View() string {
 
 	// Calculate left column width for proper pane sizing
 	leftColumnWidth := int(float64(m.width) * 0.4)
-	rightColumnWidth := m.width - leftColumnWidth
+	rightColumnWidth := m.width - leftColumnWidth - 4 // Subtract 1 to prevent overflow
 
 	paneStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
