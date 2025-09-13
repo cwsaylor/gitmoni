@@ -43,25 +43,55 @@ type model struct {
 	lazyGitRepo   string
 }
 
+// Icon represents the different icon types we use
+type Icon struct {
+	Error    string
+	Success  string
+	Changed  string
+	Pull     string
+}
+
+// getIcons returns the appropriate icons based on the config setting
+func getIcons(iconStyle string) Icon {
+	if iconStyle == "glyphs" {
+		// Nerd Font glyphs
+		return Icon{
+			Error:   "", // nf-fa-times_circle
+			Success: "", // nf-fa-check_circle
+			Changed: "", // nf-fa-refresh
+			Pull:    "", // nf-fa-download
+		}
+	}
+	// Default to emoji
+	return Icon{
+		Error:   "❌",
+		Success: "✅",
+		Changed: "🔄",
+		Pull:    "⬇️",
+	}
+}
+
 type repoItem struct {
-	path   string
-	status GitStatus
+	path      string
+	status    GitStatus
+	iconStyle string
 }
 
 func (i repoItem) FilterValue() string { return i.path }
 func (i repoItem) Title() string {
+	icons := getIcons(i.iconStyle)
 	pullIcon := ""
 	if i.status.HasRemote && i.status.NeedsPull {
-		pullIcon = "⬇️ "
+		pullIcon = icons.Pull + " "
 	}
-	
+
 	if i.status.HasError {
-		return fmt.Sprintf("❌ %s%s", pullIcon, i.path)
+		return fmt.Sprintf("%s %s%s", icons.Error, pullIcon, i.path)
 	}
 	if len(i.status.Files) == 0 {
-		return fmt.Sprintf("✅ %s%s", pullIcon, i.path)
+		return fmt.Sprintf("%s %s%s", icons.Success, pullIcon, i.path)
 	}
-	return fmt.Sprintf("🔄 %s%s (%d)", pullIcon, i.path, len(i.status.Files))
+	return fmt.Sprintf("%s %s%s (%d)", icons.Changed, pullIcon, i.path, len(i.status.Files))
 }
 func (i repoItem) Description() string {
 	if i.status.HasError {
@@ -301,7 +331,7 @@ func (m *model) updateRepoList() {
 		if !exists {
 			status = GitStatus{Path: repo, HasError: true, Error: "Status not loaded"}
 		}
-		items = append(items, repoItem{path: repo, status: status})
+		items = append(items, repoItem{path: repo, status: status, iconStyle: m.config.IconStyle})
 	}
 	m.repoList.SetItems(items)
 }

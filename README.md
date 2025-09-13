@@ -10,11 +10,12 @@ A terminal user interface (TUI) for monitoring multiple local Git repositories w
 - **Multi-repository monitoring**: Track changes across multiple Git repositories from a single interface
 - **Real-time status**: View repository status with visual indicators (✅ clean, 🔄 changes, ❌ errors)
 - **Remote repository tracking**: Monitor if repositories need pulling from remote with ⬇️  indicator
-- **Three-pane tabbed interface**: Navigate between repositories, files, and diff view with Tab key
+- **Three-pane tabbed interface**: Navigate between repositories, files, and diff view with Tab/Shift+Tab keys
 - **Command-line repository management**: Add (`-a`), list (`-l`), and delete (`-d`) repositories from command line
 - **Remote fetching**: Press `f` to fetch updates from all remotes
 - **Syntax highlighting**: Colored diff output with support for multiple file types
 - **Configurable git client**: Supports lazygit or any other git client via configuration
+- **Customizable icons**: Choose between emoji or Nerd Font glyphs for status indicators
 - **Enhanced layout**: Responsive 70/30 split for repository and file lists
 - **Configuration management**: Persistent repository list stored in `~/.gitmoni.json`
 
@@ -60,7 +61,8 @@ gitmoni -d  .
 
 - **`r`** - Refresh all repository statuses
 - **`f`** - Fetch updates from all remotes
-- **`Tab`** - Switch between repository, file, and diff panes
+- **`Tab`** - Switch forward between repository, file, and diff panes
+- **`Shift+Tab`** - Switch backward between repository, file, and diff panes
 - **`↑/↓` or `k/j`** - Navigate up/down in current pane or scroll diff view
 - **`Enter`** - Launch configured git client (lazygit by default) for the selected repository
 - **`q` or `Ctrl+C`** - Quit the application
@@ -98,9 +100,20 @@ GitMoni stores its configuration in `~/.gitmoni.json`, or in the current directo
     "/home/user/project2",
     "/home/user/work/repo1"
   ],
-  "enter_command_binary": "lazygit"
+  "enter_command_binary": "lazygit",
+  "icon_style": "emoji"
 }
 ```
+
+### Configuration Options
+
+- **`repositories`**: Array of absolute paths to Git repositories to monitor
+- **`enter_command_binary`**: Command template to run when pressing Enter on a repository (see Git Client Configuration below)
+- **`icon_style`**: Display style for status indicators
+  - `"emoji"` (default): Use emoji icons (❌ ✅ 🔄 ⬇️)
+  - `"glyphs"`: Use Nerd Font glyphs (    )
+
+**Note**: When using `"glyphs"`, you need a [Nerd Font](https://www.nerdfonts.com) installed in your terminal (e.g., Hack Nerd Font, FiraCode Nerd Font, etc.)
 
 ### Adding Repositories
 
@@ -145,10 +158,17 @@ Default:
 
 ## Git Status Indicators
 
+### Emoji Icons (default)
 - **✅** - Repository is clean (no changes)
 - **🔄** - Repository has changes (number in parentheses shows change count)
 - **❌** - Error accessing repository or not a Git repository
 - **⬇️** - Repository needs to be pulled from remote (appears before repository path)
+
+### Nerd Font Glyphs
+- **** - Repository is clean (no changes)
+- **** - Repository has changes (number in parentheses shows change count)
+- **** - Error accessing repository or not a Git repository
+- **** - Repository needs to be pulled from remote (appears before repository path)
 
 ## File Status Codes
 

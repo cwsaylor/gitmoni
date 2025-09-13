@@ -9,12 +9,14 @@ import (
 type Config struct {
 	Repositories      []string `json:"repositories"`
 	EnterCommandBinary string   `json:"enter_command_binary"`
+	IconStyle         string   `json:"icon_style"` // "emoji" or "glyphs"
 }
 
 func loadConfig() (*Config, error) {
 	config := &Config{
 		Repositories:      []string{},
 		EnterCommandBinary: "lazygit", // default to lazygit
+		IconStyle:         "emoji",    // default to emoji
 	}
 
 	configPaths := []string{
