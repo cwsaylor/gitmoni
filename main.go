@@ -561,7 +561,7 @@ func (m model) View() string {
 	rightPaneStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		Padding(0, 1).
-		Width(rightColumnWidth)
+		Width(rightColumnWidth - 4)
 
 	// Apply focused styling to the current pane
 	var repoPane, filePane, diffPane string
