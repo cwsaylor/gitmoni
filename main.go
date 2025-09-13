@@ -260,11 +260,13 @@ func initialModel() (model, error) {
 	repoList := list.New([]list.Item{}, repoDelegate, 0, 0)
 	repoList.Title = "Repositories"
 	repoList.SetShowStatusBar(false)
+	repoList.SetShowPagination(false)
 
 	fileDelegate := list.NewDefaultDelegate()
 	fileList := list.New([]list.Item{}, fileDelegate, 0, 0)
 	fileList.Title = "Changed Files"
 	fileList.SetShowStatusBar(false)
+	fileList.SetShowPagination(false)
 
 	diffView := viewport.New(0, 0)
 
@@ -403,13 +405,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		availableHeight := m.height - helpHeight
 
 		// Left column is split vertically: repositories (70%) and files (30%)
-		// Each component gets the full left column width and will have its own borders
+		// Compute total content budget first to avoid rounding overflow, then split.
 		leftPaneContentWidth := leftColumnWidth - frameWidth
+		if leftPaneContentWidth < 0 {
+			leftPaneContentWidth = 0
+		}
 		rightPaneContentWidth := rightColumnWidth - frameWidth
+		if rightPaneContentWidth < 0 {
+			rightPaneContentWidth = 0
+		}
 
-		repoHeight := int(float64(availableHeight)*0.7) - frameHeight
-		fileHeight := availableHeight - repoHeight - frameHeight - frameHeight // Subtract frame overhead for both components
+		leftContentBudget := availableHeight - (2 * frameHeight)
+		if leftContentBudget < 0 {
+			leftContentBudget = 0
+		}
+		repoHeight := (leftContentBudget * 7) / 10
+		fileHeight := leftContentBudget - repoHeight
+
 		diffHeight := availableHeight - frameHeight
+		if diffHeight < 0 {
+			diffHeight = 0
+		}
 
 		m.repoList.SetSize(leftPaneContentWidth, repoHeight)
 		m.fileList.SetSize(leftPaneContentWidth, fileHeight)
@@ -561,7 +577,7 @@ func (m model) View() string {
 	rightPaneStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		Padding(0, 1).
-		Width(rightColumnWidth - 4)
+		Width(rightColumnWidth)
 
 	// Apply focused styling to the current pane
 	var repoPane, filePane, diffPane string

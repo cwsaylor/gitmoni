@@ -116,10 +116,32 @@ Manually edit `.gitmoni.json` and add repository paths to the `repositories` arr
 
 ### Git Client Configuration
 
-You can configure which git client launches when pressing Enter by setting `enter_command_binary` in your configuration:
+The `enter_command_binary` setting is a command template that runs when you press Enter on a repository. GitMoni replaces the `$REPO` placeholder with the selected repository path, then splits the command by spaces and executes it directly (no shell involved).
 
-- `"lazygit"` (default): Launches with `-p` flag for the repository path
-- `"github"` or other clients: Changes to repository directory and launches the client
+- Use `$REPO` where you want the selected repo path inserted.
+- Because the command is split on spaces (no shell parsing), complex quoting and chaining won’t work. If you need to `cd` or use shell features, create a tiny wrapper script and call that with `$REPO`.
+
+Examples:
+
+- Recommended (lazygit):
+  - `"enter_command_binary": "lazygit -p $REPO"`
+  - This opens lazygit pointed at the selected repository.
+
+- VS Code:
+  - `"enter_command_binary": "code $REPO"`
+
+- GitHub Desktop (via wrapper script):
+  1. Create `~/bin/open-github-desktop`:
+     ```bash
+     #!/usr/bin/env bash
+     open -a "GitHub Desktop" "$1"
+     ```
+     Make it executable: `chmod +x ~/bin/open-github-desktop`
+  2. Set in config: `"enter_command_binary": "~/bin/open-github-desktop $REPO"`
+
+Default:
+
+- If you don’t set this, the default is `"lazygit"` without arguments. It will launch lazygit in your current working directory, which may not be the selected repo. For best results, set it explicitly to `"lazygit -p $REPO"`.
 
 ## Git Status Indicators
 
