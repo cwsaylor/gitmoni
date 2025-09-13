@@ -13,6 +13,7 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -26,6 +27,9 @@ const (
 	focusFile
 	focusDiff
 )
+
+// fetchCompleteMsg is sent when remote fetching is complete
+type fetchCompleteMsg struct{}
 
 type model struct {
 	config        *Config
@@ -41,6 +45,8 @@ type model struct {
 	currentDiff   string
 	launchLazyGit bool
 	lazyGitRepo   string
+	isFetching    bool
+	spinner       spinner.Model
 }
 
 // Icon represents the different icon types we use
@@ -307,6 +313,11 @@ func initialModel() (model, error) {
 
 	diffView := viewport.New(0, 0)
 
+	// Initialize spinner
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63")) // Bright blue color
+
 	m := model{
 		config:      config,
 		focused:     focusRepo,
@@ -314,9 +325,12 @@ func initialModel() (model, error) {
 		fileList:    fileList,
 		diffView:    diffView,
 		gitStatuses: make(map[string]GitStatus),
+		spinner:     s,
+		isFetching:  true, // Start in fetching state
 	}
 
 	if len(config.Repositories) > 0 {
+		// Do initial status check without fetching
 		m.updateGitStatuses()
 		m.updateRepoList()
 		m.selectRepo(0)
@@ -406,13 +420,24 @@ func (m *model) updateDiff() {
 	}
 }
 
-func (m *model) fetchAllRemotes() {
-	for _, repo := range m.config.Repositories {
-		fetchRemoteUpdates(repo) // Don't block on errors
+// fetchRemotesCmd returns a command that fetches all remotes in the background
+func fetchRemotesCmd(repos []string) tea.Cmd {
+	return func() tea.Msg {
+		for _, repo := range repos {
+			fetchRemoteUpdates(repo)
+		}
+		return fetchCompleteMsg{}
 	}
 }
 
 func (m model) Init() tea.Cmd {
+	// Start spinner and fetch remotes in background
+	if m.isFetching && len(m.config.Repositories) > 0 {
+		return tea.Batch(
+			m.spinner.Tick,
+			fetchRemotesCmd(m.config.Repositories),
+		)
+	}
 	return nil
 }
 
@@ -421,6 +446,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     var cmds []tea.Cmd
 
     switch msg := msg.(type) {
+    case fetchCompleteMsg:
+        // Fetching complete, update statuses and stop spinner
+        m.isFetching = false
+        m.updateGitStatuses()
+        m.updateRepoList()
+        if len(m.fileList.Items()) > 0 {
+            m.updateDiff()
+        }
+        return m, nil
+
+    case spinner.TickMsg:
+        // Update spinner if we're still fetching
+        if m.isFetching {
+            m.spinner, cmd = m.spinner.Update(msg)
+            cmds = append(cmds, cmd)
+        }
+
     case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -567,11 +609,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     			m.updateRepoList()
     			m.updateFileList()
     		case "f":
-    			// Fetch remote updates for all repositories
-    			go m.fetchAllRemotes()
-    			m.updateGitStatuses()
-    			m.updateRepoList()
-    			m.updateFileList()
+    			// Fetch remote updates for all repositories asynchronously
+    			if !m.isFetching {
+    				m.isFetching = true
+    				return m, tea.Batch(
+    					m.spinner.Tick,
+    					fetchRemotesCmd(m.config.Repositories),
+    				)
+    			}
     		default:
     			// Forward all other key events (e.g. PgUp/PgDn) to the focused pane only
     			if m.focused == focusRepo {
@@ -681,11 +726,21 @@ func (m model) View() string {
 		rightColumn,
 	)
 
-    helpText := fmt.Sprintf("Press 'r' to refresh, 'f' to fetch remotes, 'q' to quit, Tab to switch panes, ↑↓/PgUp/PgDn to navigate, Enter to open %s", m.config.EnterCommandBinary)
-    help := lipgloss.NewStyle().
-        Foreground(lipgloss.Color("240")).
-        Width(m.width). // ensure wrapping matches terminal width
-        Render(helpText)
+    // Show spinner or help text
+    var help string
+    if m.isFetching {
+        spinnerView := m.spinner.View()
+        fetchText := lipgloss.NewStyle().
+            Foreground(lipgloss.Color("240")).
+            Render(" Fetching remote updates from repositories...")
+        help = spinnerView + fetchText
+    } else {
+        helpText := fmt.Sprintf("Press 'r' to refresh, 'f' to fetch remotes, 'q' to quit, Tab to switch panes, ↑↓/PgUp/PgDn to navigate, Enter to open %s", m.config.EnterCommandBinary)
+        help = lipgloss.NewStyle().
+            Foreground(lipgloss.Color("240")).
+            Width(m.width).
+            Render(helpText)
+    }
 
     joined := lipgloss.JoinVertical(lipgloss.Left, content, help)
     // Force the final frame to exactly match the terminal size to prevent scrollback growth
