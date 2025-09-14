@@ -2,7 +2,7 @@
 
 A terminal user interface (TUI) for monitoring multiple local Git repositories with syntax-highlighted diffs and lazygit/github desktop integration.
 
-This grew out of a need for monitoring multiple repositories for local changes so I could commit and push before switching to my laptop.
+This grew out of a need for monitoring multiple repositories for local changes to be committed and pushed before switching to my laptop.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Go Version](https://img.shields.io/badge/go-1.25.1-blue.svg)
@@ -31,6 +31,13 @@ This grew out of a need for monitoring multiple repositories for local changes s
 - Go 1.25.1 or later
 - Git
 - [lazygit](https://github.com/jesseduffield/lazygit) (optional, for enhanced Git operations)
+
+### Install via Homebrew
+
+```bash
+brew tap cwsaylor/tap
+brew install gitmoni
+```
 
 ### Build from source
 
