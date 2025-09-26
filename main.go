@@ -3,25 +3,23 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/charmbracelet/bubbles/list"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/jroimartin/gocui"
 )
 
 // Version is set via ldflags at build time
 var Version = "dev"
-
 
 type focusedPane int
 
@@ -31,45 +29,29 @@ const (
 	focusDiff
 )
 
-// fetchCompleteMsg is sent when remote fetching is complete
-type fetchCompleteMsg struct{}
-
-// repoFetchStartMsg is sent when a specific repo starts fetching
-type repoFetchStartMsg struct {
-	repo string
-}
-
-// repoFetchCompleteMsg is sent when a specific repo completes fetching
-type repoFetchCompleteMsg struct {
-	repo string
-}
-
-type model struct {
+type App struct {
+	gui             *gocui.Gui
 	config          *Config
 	focused         focusedPane
-	width           int
-	height          int
-	repoList        list.Model
-	fileList        list.Model
-	diffView        viewport.Model
+	gitStatuses     map[string]GitStatus
 	selectedRepo    int
 	selectedFile    int
-	gitStatuses     map[string]GitStatus
 	currentDiff     string
 	launchLazyGit   bool
 	lazyGitRepo     string
 	isFetching      bool
-	spinner         spinner.Model
-	fetchingRepos   map[string]bool // Track which repos are currently fetching
-	repoSpinners    map[string]spinner.Model // Store spinners for each repo
+	fetchingRepos   map[string]bool
+	mu              sync.Mutex
+	spinnerFrame    int
+	lastSpinnerTick time.Time
 }
 
 // Icon represents the different icon types we use
 type Icon struct {
-	Error    string
-	Success  string
-	Changed  string
-	Pull     string
+	Error   string
+	Success string
+	Changed string
+	Pull    string
 }
 
 // getIcons returns the appropriate icons based on the config setting
@@ -77,10 +59,10 @@ func getIcons(iconStyle string) Icon {
 	if iconStyle == "glyphs" {
 		// Nerd Font glyphs
 		return Icon{
-			Error:   "", // nf-fa-times_circle
-			Success: "", // nf-fa-check_circle
-			Changed: "", // nf-fa-refresh
-			Pull:    "", // nf-fa-download
+			Error:   "", // nf-fa-times_circle
+			Success: "", // nf-fa-check_circle
+			Changed: "", // nf-fa-refresh
+			Pull:    "", // nf-fa-download
 		}
 	}
 	// Default to emoji
@@ -91,71 +73,6 @@ func getIcons(iconStyle string) Icon {
 		Pull:    "⬇️",
 	}
 }
-
-type repoItem struct {
-	path       string
-	status     GitStatus
-	iconStyle  string
-	isFetching bool
-	spinner    spinner.Model
-}
-
-func (i repoItem) FilterValue() string { return i.path }
-func (i repoItem) Title() string {
-	icons := getIcons(i.iconStyle)
-	pullIcon := ""
-	if i.status.HasRemote && i.status.NeedsPull {
-		pullIcon = icons.Pull + " "
-	}
-
-	title := ""
-	if i.status.HasError {
-		title = fmt.Sprintf("%s %s%s", icons.Error, pullIcon, i.path)
-	} else if len(i.status.Files) == 0 {
-		title = fmt.Sprintf("%s %s%s", icons.Success, pullIcon, i.path)
-	} else {
-		title = fmt.Sprintf("%s %s%s (%d)", icons.Changed, pullIcon, i.path, len(i.status.Files))
-	}
-
-	// Apply green color to repos with changes
-	if len(i.status.Files) > 0 && !i.status.HasError {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(title)
-	}
-	return title
-}
-func (i repoItem) Description() string {
-	if i.status.HasError {
-		return i.status.Error
-	}
-
-	baseDesc := ""
-	if len(i.status.Files) == 0 {
-		baseDesc = "No changes"
-	} else if len(i.status.Files) == 1 {
-		baseDesc = "1 changed file"
-	} else {
-		baseDesc = fmt.Sprintf("%d changed files", len(i.status.Files))
-	}
-
-	// Show spinner and "Updating" when fetching
-	if i.isFetching {
-		return fmt.Sprintf("%s • %s Updating", baseDesc, i.spinner.View())
-	}
-
-	if i.status.HasRemote && i.status.RemoteStatus != "" {
-		return fmt.Sprintf("%s • %s", baseDesc, i.status.RemoteStatus)
-	}
-
-	return baseDesc
-}
-
-type fileItem struct {
-	gitFile GitFile
-}
-
-func (i fileItem) FilterValue() string { return i.gitFile.Path }
-func (i fileItem) Title() string       { return fmt.Sprintf("%s %s", i.gitFile.Status, i.gitFile.Path) }
-func (i fileItem) Description() string { return getStatusDescription(i.gitFile.Status) }
 
 func getStatusDescription(status string) string {
 	switch status {
@@ -316,545 +233,522 @@ func deleteRepositoryFromCommandLine(path string) error {
 	return nil
 }
 
-func initialModel() (model, error) {
+func NewApp() (*App, error) {
 	config, err := loadConfig()
 	if err != nil {
-		return model{}, err
+		return nil, err
 	}
 
-
-	repoDelegate := list.NewDefaultDelegate()
-	repoList := list.New([]list.Item{}, repoDelegate, 0, 0)
-	repoList.Title = "Repositories"
-	repoList.SetShowStatusBar(false)
-	repoList.SetShowPagination(false)
-
-	fileDelegate := list.NewDefaultDelegate()
-	fileList := list.New([]list.Item{}, fileDelegate, 0, 0)
-	fileList.Title = "Changed Files"
-	fileList.SetShowStatusBar(false)
-	fileList.SetShowPagination(false)
-
-	diffView := viewport.New(0, 0)
-
-	// Initialize spinner
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63")) // Bright blue color
-
-	m := model{
+	app := &App{
 		config:        config,
 		focused:       focusRepo,
-		repoList:      repoList,
-		fileList:      fileList,
-		diffView:      diffView,
 		gitStatuses:   make(map[string]GitStatus),
-		spinner:       s,
-		isFetching:    true, // Start in fetching state
 		fetchingRepos: make(map[string]bool),
-		repoSpinners:  make(map[string]spinner.Model),
+		isFetching:    true,
 	}
 
 	if len(config.Repositories) > 0 {
 		// Do initial status check without fetching
-		m.updateGitStatuses()
-		m.updateRepoList()
-		m.selectRepo(0)
+		app.updateGitStatuses()
 	}
 
-	return m, nil
+	return app, nil
 }
 
-func (m *model) updateGitStatuses() {
-	for _, repo := range m.config.Repositories {
-		m.gitStatuses[repo] = checkGitStatus(repo)
-	}
-}
-
-func (m *model) updateRepoList() {
-	items := make([]list.Item, 0)
-	for _, repo := range m.config.Repositories {
-		status, exists := m.gitStatuses[repo]
-		if !exists {
-			status = GitStatus{Path: repo, HasError: true, Error: "Status not loaded"}
-		}
-
-		// Get or create spinner for this repo
-		s, exists := m.repoSpinners[repo]
-		if !exists {
-			s = spinner.New()
-			s.Spinner = spinner.Dot
-			s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
-			m.repoSpinners[repo] = s
-		}
-
-		items = append(items, repoItem{
-			path:       repo,
-			status:     status,
-			iconStyle:  m.config.IconStyle,
-			isFetching: m.fetchingRepos[repo],
-			spinner:    s,
-		})
-	}
-	m.repoList.SetItems(items)
-}
-
-func (m *model) updateFileList() {
-	if m.selectedRepo >= len(m.config.Repositories) {
-		return
-	}
-
-	repo := m.config.Repositories[m.selectedRepo]
-	status, exists := m.gitStatuses[repo]
-	if !exists || status.HasError {
-		m.fileList.SetItems([]list.Item{})
-		return
-	}
-
-	items := make([]list.Item, 0)
-	for _, file := range status.Files {
-		items = append(items, fileItem{gitFile: file})
-	}
-	m.fileList.SetItems(items)
-}
-
-func (m *model) selectRepo(index int) {
-	if index >= 0 && index < len(m.config.Repositories) {
-		m.selectedRepo = index
-		m.repoList.Select(index)
-		m.updateFileList()
-		if len(m.fileList.Items()) > 0 {
-			m.selectFile(0)
-		} else {
-			m.currentDiff = ""
-			m.diffView.SetContent("")
-		}
+func (a *App) updateGitStatuses() {
+	for _, repo := range a.config.Repositories {
+		a.gitStatuses[repo] = checkGitStatus(repo)
 	}
 }
 
-func (m *model) selectFile(index int) {
-	items := m.fileList.Items()
-	if index >= 0 && index < len(items) {
-		m.selectedFile = index
-		m.fileList.Select(index)
-		m.updateDiff()
+func (a *App) fetchRemotesAsync() {
+	// Mark all repos as fetching
+	a.mu.Lock()
+	for _, repo := range a.config.Repositories {
+		a.fetchingRepos[repo] = true
 	}
-}
+	a.mu.Unlock()
 
-func (m *model) updateDiff() {
-	items := m.fileList.Items()
-	if m.selectedFile >= 0 && m.selectedFile < len(items) {
-		fileItem := items[m.selectedFile].(fileItem)
-		repo := m.config.Repositories[m.selectedRepo]
-
-		diff, err := getFileDiff(repo, fileItem.gitFile.Path)
-		if err != nil {
-			m.currentDiff = fmt.Sprintf("Error getting diff: %s", err.Error())
-		} else if diff == "" {
-			m.currentDiff = fmt.Sprintf("No diff available for: %s\n\nThis could mean:\n- File is newly added (not tracked)\n- File is staged but no changes in working directory\n- Binary file", fileItem.gitFile.Path)
-		} else {
-			// Apply syntax highlighting to the diff content
-			highlightedDiff := applySyntaxHighlighting(diff, fileItem.gitFile.Path)
-			m.currentDiff = highlightedDiff
-		}
-		m.diffView.SetContent(m.currentDiff)
-		m.diffView.GotoTop()
-	}
-}
-
-// fetchRemotesCmd returns a command that fetches all remotes concurrently
-func fetchRemotesCmd(repos []string) tea.Cmd {
-	var cmds []tea.Cmd
-	for _, repo := range repos {
-		r := repo // Capture for closure
-		cmds = append(cmds, func() tea.Msg {
+	// Fetch all repos concurrently
+	var wg sync.WaitGroup
+	for _, repo := range a.config.Repositories {
+		wg.Add(1)
+		go func(r string) {
+			defer wg.Done()
 			fetchRemoteUpdates(r)
-			return repoFetchCompleteMsg{repo: r}
-		})
+
+			// Update status for this repo
+			a.mu.Lock()
+			a.gitStatuses[r] = checkGitStatus(r)
+			delete(a.fetchingRepos, r)
+			a.mu.Unlock()
+		}(repo)
 	}
 
-	return tea.Batch(cmds...)
+	// Wait for all to complete
+	wg.Wait()
+
+	a.mu.Lock()
+	a.isFetching = false
+	a.mu.Unlock()
 }
 
-func (m model) Init() tea.Cmd {
-	// Start spinner and fetch remotes in background
-	if m.isFetching && len(m.config.Repositories) > 0 {
-		var cmds []tea.Cmd
-		// Mark all repos as fetching and start their spinners
-		for _, repo := range m.config.Repositories {
-			m.fetchingRepos[repo] = true
-			// Initialize and start each repo's spinner
-			if _, exists := m.repoSpinners[repo]; !exists {
-				s := spinner.New()
-				s.Spinner = spinner.Dot
-				s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
-				m.repoSpinners[repo] = s
-			}
-			if s, exists := m.repoSpinners[repo]; exists {
-				cmds = append(cmds, s.Tick)
-			}
+func (a *App) layout(g *gocui.Gui) error {
+	maxX, maxY := g.Size()
+
+	// 2-column layout: left column (40%) for repo and file lists, right column (60%) for diff
+	leftColumnWidth := int(float64(maxX) * 0.4)
+	rightColumnStart := leftColumnWidth + 1
+
+	// Help text takes up bottom 2 lines
+	helpHeight := 2
+	contentHeight := maxY - helpHeight
+
+	// Left column is split vertically: repositories (70%) and files (30%)
+	repoHeight := (contentHeight * 7) / 10
+	fileStart := repoHeight + 1
+
+	// Repository list view
+	if v, err := g.SetView("repos", 0, 0, leftColumnWidth-1, repoHeight); err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
 		}
-		// Add global spinner and fetch command
-		cmds = append(cmds, m.spinner.Tick)
-		cmds = append(cmds, fetchRemotesCmd(m.config.Repositories))
-		return tea.Batch(cmds...)
+		v.Title = "Repositories"
+		v.Highlight = true
+		v.SelBgColor = gocui.ColorGreen
+		v.SelFgColor = gocui.ColorBlack
+		a.updateRepoView(v)
+	}
+
+	// Files list view
+	if v, err := g.SetView("files", 0, fileStart, leftColumnWidth-1, contentHeight-1); err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
+		}
+		v.Title = "Changed Files"
+		v.Highlight = true
+		v.SelBgColor = gocui.ColorGreen
+		v.SelFgColor = gocui.ColorBlack
+		a.updateFileView(v)
+	}
+
+	// Diff view
+	if v, err := g.SetView("diff", rightColumnStart, 0, maxX-1, contentHeight-1); err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
+		}
+		v.Title = "Diff"
+		v.Wrap = false
+		v.Autoscroll = false
+		a.updateDiffView(v)
+	}
+
+	// Help/status view
+	if v, err := g.SetView("help", 0, contentHeight, maxX-1, maxY-1); err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
+		}
+		v.Frame = false
+		a.updateHelpView(v)
+	}
+
+	// Set initial focus
+	if _, err := g.SetCurrentView("repos"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (a *App) updateRepoView(v *gocui.View) {
+	v.Clear()
+	icons := getIcons(a.config.IconStyle)
+
+	for i, repo := range a.config.Repositories {
+		status := a.gitStatuses[repo]
+
+		pullIcon := ""
+		if status.HasRemote && status.NeedsPull {
+			pullIcon = icons.Pull + " "
+		}
+
+		var line string
+		isFetching := a.fetchingRepos[repo]
+
+		if status.HasError {
+			line = fmt.Sprintf("%s %s%s", icons.Error, pullIcon, filepath.Base(repo))
+		} else if len(status.Files) == 0 {
+			line = fmt.Sprintf("%s %s%s", icons.Success, pullIcon, filepath.Base(repo))
+		} else {
+			line = fmt.Sprintf("%s %s%s (%d)", icons.Changed, pullIcon, filepath.Base(repo), len(status.Files))
+		}
+
+		// Add fetching indicator
+		if isFetching {
+			spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+			line += fmt.Sprintf(" %s Updating", spinner[a.spinnerFrame%len(spinner)])
+		} else if status.HasRemote && status.RemoteStatus != "" {
+			line += fmt.Sprintf(" • %s", status.RemoteStatus)
+		}
+
+		// Highlight selected item differently
+		if i == a.selectedRepo {
+			fmt.Fprintf(v, "> %s\n", line)
+		} else {
+			fmt.Fprintf(v, "  %s\n", line)
+		}
+	}
+}
+
+func (a *App) updateFileView(v *gocui.View) {
+	v.Clear()
+
+	if a.selectedRepo >= len(a.config.Repositories) {
+		return
+	}
+
+	repo := a.config.Repositories[a.selectedRepo]
+	status := a.gitStatuses[repo]
+
+	if status.HasError {
+		fmt.Fprintln(v, status.Error)
+		return
+	}
+
+	if len(status.Files) == 0 {
+		fmt.Fprintln(v, "No changes")
+		return
+	}
+
+	for i, file := range status.Files {
+		desc := getStatusDescription(file.Status)
+		line := fmt.Sprintf("%s %s (%s)", file.Status, file.Path, desc)
+
+		if i == a.selectedFile {
+			fmt.Fprintf(v, "> %s\n", line)
+		} else {
+			fmt.Fprintf(v, "  %s\n", line)
+		}
+	}
+}
+
+func (a *App) updateDiffView(v *gocui.View) {
+	v.Clear()
+
+	if a.selectedRepo >= len(a.config.Repositories) {
+		return
+	}
+
+	repo := a.config.Repositories[a.selectedRepo]
+	status := a.gitStatuses[repo]
+
+	if status.HasError || len(status.Files) == 0 {
+		return
+	}
+
+	if a.selectedFile >= len(status.Files) {
+		return
+	}
+
+	file := status.Files[a.selectedFile]
+	diff, err := getFileDiff(repo, file.Path)
+
+	if err != nil {
+		fmt.Fprintf(v, "Error getting diff: %s", err.Error())
+		return
+	}
+
+	if diff == "" {
+		fmt.Fprintf(v, "No diff available for: %s\n\nThis could mean:\n- File is newly added (not tracked)\n- File is staged but no changes in working directory\n- Binary file", file.Path)
+		return
+	}
+
+	// Apply syntax highlighting
+	highlightedDiff := applySyntaxHighlighting(diff, file.Path)
+	fmt.Fprint(v, highlightedDiff)
+}
+
+func (a *App) updateHelpView(v *gocui.View) {
+	v.Clear()
+
+	if a.isFetching {
+		spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+		fmt.Fprintf(v, "%s Fetching remote updates from repositories...\n", spinner[a.spinnerFrame%len(spinner)])
+	}
+
+	fmt.Fprintf(v, "Press 'r' to refresh, 'q' to quit, Tab to switch panes, ↑↓ to navigate, Enter to open %s",
+		a.config.EnterCommandBinary)
+}
+
+func (a *App) keybindings(g *gocui.Gui) error {
+	// Quit
+	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, a.quit); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("", 'q', gocui.ModNone, a.quit); err != nil {
+		return err
+	}
+
+	// Tab navigation between panes
+	if err := g.SetKeybinding("", gocui.KeyTab, gocui.ModNone, a.nextView); err != nil {
+		return err
+	}
+
+	// Refresh
+	if err := g.SetKeybinding("", 'r', gocui.ModNone, a.refresh); err != nil {
+		return err
+	}
+
+	// Enter to launch external command
+	if err := g.SetKeybinding("repos", gocui.KeyEnter, gocui.ModNone, a.launchExternal); err != nil {
+		return err
+	}
+
+	// Navigation for repos view
+	if err := g.SetKeybinding("repos", gocui.KeyArrowUp, gocui.ModNone, a.cursorUp); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("repos", 'k', gocui.ModNone, a.cursorUp); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("repos", gocui.KeyArrowDown, gocui.ModNone, a.cursorDown); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("repos", 'j', gocui.ModNone, a.cursorDown); err != nil {
+		return err
+	}
+
+	// Navigation for files view
+	if err := g.SetKeybinding("files", gocui.KeyArrowUp, gocui.ModNone, a.fileCursorUp); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("files", 'k', gocui.ModNone, a.fileCursorUp); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("files", gocui.KeyArrowDown, gocui.ModNone, a.fileCursorDown); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("files", 'j', gocui.ModNone, a.fileCursorDown); err != nil {
+		return err
+	}
+
+	// Navigation for diff view
+	if err := g.SetKeybinding("diff", gocui.KeyArrowUp, gocui.ModNone, a.scrollUp); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("diff", 'k', gocui.ModNone, a.scrollUp); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("diff", gocui.KeyArrowDown, gocui.ModNone, a.scrollDown); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("diff", 'j', gocui.ModNone, a.scrollDown); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("diff", gocui.KeyPgup, gocui.ModNone, a.scrollPageUp); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("diff", gocui.KeyPgdn, gocui.ModNone, a.scrollPageDown); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (a *App) quit(g *gocui.Gui, v *gocui.View) error {
+	return gocui.ErrQuit
+}
+
+func (a *App) nextView(g *gocui.Gui, v *gocui.View) error {
+	views := []string{"repos", "files", "diff"}
+	current := g.CurrentView()
+
+	if current == nil {
+		return nil
+	}
+
+	currentName := current.Name()
+	nextIndex := 0
+
+	for i, name := range views {
+		if name == currentName {
+			nextIndex = (i + 1) % len(views)
+			break
+		}
+	}
+
+	_, err := g.SetCurrentView(views[nextIndex])
+
+	// Update focused pane
+	switch views[nextIndex] {
+	case "repos":
+		a.focused = focusRepo
+	case "files":
+		a.focused = focusFile
+	case "diff":
+		a.focused = focusDiff
+	}
+
+	return err
+}
+
+func (a *App) refresh(g *gocui.Gui, v *gocui.View) error {
+	// Update local status immediately
+	a.updateGitStatuses()
+
+	// Refresh all views
+	if repoView, err := g.View("repos"); err == nil {
+		a.updateRepoView(repoView)
+	}
+	if fileView, err := g.View("files"); err == nil {
+		a.updateFileView(fileView)
+	}
+	if diffView, err := g.View("diff"); err == nil {
+		a.updateDiffView(diffView)
+	}
+
+	// Start async fetch if not already fetching
+	if !a.isFetching {
+		a.isFetching = true
+		go a.fetchRemotesAsync()
+	}
+
+	return nil
+}
+
+func (a *App) launchExternal(g *gocui.Gui, v *gocui.View) error {
+	if a.selectedRepo >= len(a.config.Repositories) {
+		return nil
+	}
+
+	a.launchLazyGit = true
+	a.lazyGitRepo = a.config.Repositories[a.selectedRepo]
+	return gocui.ErrQuit
+}
+
+func (a *App) cursorUp(g *gocui.Gui, v *gocui.View) error {
+	if a.selectedRepo > 0 {
+		a.selectedRepo--
+		a.selectedFile = 0
+
+		// Update all views
+		a.updateRepoView(v)
+		if fileView, err := g.View("files"); err == nil {
+			a.updateFileView(fileView)
+		}
+		if diffView, err := g.View("diff"); err == nil {
+			a.updateDiffView(diffView)
+		}
 	}
 	return nil
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    var cmd tea.Cmd
-    var cmds []tea.Cmd
+func (a *App) cursorDown(g *gocui.Gui, v *gocui.View) error {
+	if a.selectedRepo < len(a.config.Repositories)-1 {
+		a.selectedRepo++
+		a.selectedFile = 0
 
-    switch msg := msg.(type) {
-    case repoFetchCompleteMsg:
-        // Mark repo as no longer fetching and update its status
-        delete(m.fetchingRepos, msg.repo)
-        // Update just this repo's status
-        m.gitStatuses[msg.repo] = checkGitStatus(msg.repo)
-        m.updateRepoList()
-        // If this was the selected repo, update the file list
-        if m.selectedRepo < len(m.config.Repositories) && m.config.Repositories[m.selectedRepo] == msg.repo {
-            m.updateFileList()
-            if len(m.fileList.Items()) > 0 {
-                m.updateDiff()
-            }
-        }
-        // Check if all repos are done fetching
-        if len(m.fetchingRepos) == 0 {
-            m.isFetching = false
-        } else {
-            // Continue spinner updates for remaining repos
-            return m, m.spinner.Tick
-        }
-        return m, nil
-
-    case spinner.TickMsg:
-        // Update spinner if we're still fetching
-        if m.isFetching || len(m.fetchingRepos) > 0 {
-            var tickCmds []tea.Cmd
-            m.spinner, cmd = m.spinner.Update(msg)
-            if cmd != nil {
-                tickCmds = append(tickCmds, cmd)
-            }
-
-            // Update all fetching repo spinners and collect their commands
-            for repo := range m.fetchingRepos {
-                if s, exists := m.repoSpinners[repo]; exists {
-                    updatedSpinner, spinnerCmd := s.Update(msg)
-                    m.repoSpinners[repo] = updatedSpinner
-                    if spinnerCmd != nil {
-                        tickCmds = append(tickCmds, spinnerCmd)
-                    }
-                }
-            }
-
-            // Update the repo list to show new spinner states
-            m.updateRepoList()
-
-            // Continue ticking all spinners
-            return m, tea.Batch(tickCmds...)
-        }
-
-    case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-
-		// Create a style to calculate frame size including borders and padding
-		frameStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			Padding(0, 1)
-
-		// Calculate frame overhead (borders + padding)
-		frameWidth, frameHeight := frameStyle.GetFrameSize()
-
-		// 2-column layout: left column (40%) for repo and file lists, right column (60%) for diff
-		leftColumnWidth := int(float64(m.width) * 0.4)
-		rightColumnWidth := m.width - leftColumnWidth - 4 // Subtract 1 to prevent overflow
-
-		// Help text takes up some vertical space
-		helpHeight := 2 // Help text + some padding
-		availableHeight := m.height - helpHeight
-
-		// Left column is split vertically: repositories (70%) and files (30%)
-		// Compute total content budget first to avoid rounding overflow, then split.
-		leftPaneContentWidth := leftColumnWidth - frameWidth
-		if leftPaneContentWidth < 0 {
-			leftPaneContentWidth = 0
+		// Update all views
+		a.updateRepoView(v)
+		if fileView, err := g.View("files"); err == nil {
+			a.updateFileView(fileView)
 		}
-		rightPaneContentWidth := rightColumnWidth - frameWidth
-		if rightPaneContentWidth < 0 {
-			rightPaneContentWidth = 0
-		}
-
-		leftContentBudget := availableHeight - (2 * frameHeight)
-		if leftContentBudget < 0 {
-			leftContentBudget = 0
-		}
-		repoHeight := (leftContentBudget * 7) / 10
-		fileHeight := leftContentBudget - repoHeight
-
-		diffHeight := availableHeight - frameHeight
-		if diffHeight < 0 {
-			diffHeight = 0
-		}
-
-		m.repoList.SetSize(leftPaneContentWidth, repoHeight)
-		m.fileList.SetSize(leftPaneContentWidth, fileHeight)
-		m.diffView.Width = rightPaneContentWidth
-		m.diffView.Height = diffHeight
-
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
-		case "enter":
-			if len(m.config.Repositories) > 0 {
-				// Set flag to launch lazygit and quit
-				m.launchLazyGit = true
-				m.lazyGitRepo = m.config.Repositories[m.selectedRepo]
-				return m, tea.Quit
-			}
+		if diffView, err := g.View("diff"); err == nil {
+			a.updateDiffView(diffView)
 		}
 	}
-
-		switch msg := msg.(type) {
-    	case tea.KeyMsg:
-    		switch msg.String() {
-    		case "tab":
-    			// Switch focus between repo, file, and diff panes
-    			if m.focused == focusRepo {
-    				m.focused = focusFile
-    			} else if m.focused == focusFile {
-    				m.focused = focusDiff
-    			} else {
-    				m.focused = focusRepo
-    			}
-    		case "shift+tab":
-    			// Switch focus backwards between repo, file, and diff panes
-    			if m.focused == focusRepo {
-    				m.focused = focusDiff
-    			} else if m.focused == focusFile {
-    				m.focused = focusRepo
-    			} else {
-    				m.focused = focusFile
-    			}
-    		case "up", "k":
-    			// Route navigation to the focused pane only
-    			if m.focused == focusRepo {
-    				m.repoList, cmd = m.repoList.Update(msg)
-    				cmds = append(cmds, cmd)
-    				if m.repoList.SelectedItem() != nil {
-    					m.selectedRepo = m.repoList.Index()
-    					m.updateFileList()
-    					if len(m.fileList.Items()) > 0 {
-    						m.selectFile(0)
-    					} else {
-    						m.currentDiff = ""
-    						m.diffView.SetContent("")
-    					}
-    				}
-    				return m, tea.Batch(cmds...)
-    			} else if m.focused == focusFile {
-    				m.fileList, cmd = m.fileList.Update(msg)
-    				cmds = append(cmds, cmd)
-    				if m.fileList.SelectedItem() != nil {
-    					m.selectedFile = m.fileList.Index()
-    					m.updateDiff()
-    				}
-    				return m, tea.Batch(cmds...)
-    			} else if m.focused == focusDiff {
-    				m.diffView, cmd = m.diffView.Update(msg)
-    				cmds = append(cmds, cmd)
-    				return m, tea.Batch(cmds...)
-    			}
-    		case "down", "j":
-    			// Route navigation to the focused pane only
-    			if m.focused == focusRepo {
-    				m.repoList, cmd = m.repoList.Update(msg)
-    				cmds = append(cmds, cmd)
-    				if m.repoList.SelectedItem() != nil {
-    					m.selectedRepo = m.repoList.Index()
-    					m.updateFileList()
-    					if len(m.fileList.Items()) > 0 {
-    						m.selectFile(0)
-    					} else {
-    						m.currentDiff = ""
-    						m.diffView.SetContent("")
-    					}
-    				}
-    				return m, tea.Batch(cmds...)
-    			} else if m.focused == focusFile {
-    				m.fileList, cmd = m.fileList.Update(msg)
-    				cmds = append(cmds, cmd)
-    				if m.fileList.SelectedItem() != nil {
-    					m.selectedFile = m.fileList.Index()
-    					m.updateDiff()
-    				}
-    				return m, tea.Batch(cmds...)
-    			} else if m.focused == focusDiff {
-    				m.diffView, cmd = m.diffView.Update(msg)
-    				cmds = append(cmds, cmd)
-    				return m, tea.Batch(cmds...)
-    			}
-    		case "r":
-    			// Refresh both local status and fetch remote updates
-    			m.updateGitStatuses()
-    			m.updateRepoList()
-    			m.updateFileList()
-
-    			// Also fetch remote updates for all repositories asynchronously
-    			if !m.isFetching {
-    				var fetchCmds []tea.Cmd
-    				m.isFetching = true
-    				// Mark all repos as fetching and start their spinners
-    				for _, repo := range m.config.Repositories {
-    					m.fetchingRepos[repo] = true
-    					// Ensure spinner exists and start it
-    					if _, exists := m.repoSpinners[repo]; !exists {
-    						s := spinner.New()
-    						s.Spinner = spinner.Dot
-    						s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
-    						m.repoSpinners[repo] = s
-    					}
-    					if s, exists := m.repoSpinners[repo]; exists {
-    						fetchCmds = append(fetchCmds, s.Tick)
-    					}
-    				}
-    				m.updateRepoList() // Update to show spinners
-    				// Add global spinner and fetch command
-    				fetchCmds = append(fetchCmds, m.spinner.Tick)
-    				fetchCmds = append(fetchCmds, fetchRemotesCmd(m.config.Repositories))
-    				return m, tea.Batch(fetchCmds...)
-    			}
-    		default:
-    			// Forward all other key events (e.g. PgUp/PgDn) to the focused pane only
-    			if m.focused == focusRepo {
-    				m.repoList, cmd = m.repoList.Update(msg)
-    				cmds = append(cmds, cmd)
-    				if m.repoList.SelectedItem() != nil {
-    					m.selectedRepo = m.repoList.Index()
-    					m.updateFileList()
-    					if len(m.fileList.Items()) > 0 {
-    						m.selectFile(0)
-    					} else {
-    						m.currentDiff = ""
-    						m.diffView.SetContent("")
-    					}
-    				}
-    				return m, tea.Batch(cmds...)
-    			} else if m.focused == focusFile {
-    				m.fileList, cmd = m.fileList.Update(msg)
-    				cmds = append(cmds, cmd)
-    				if m.fileList.SelectedItem() != nil {
-    					m.selectedFile = m.fileList.Index()
-    					m.updateDiff()
-    				}
-    				return m, tea.Batch(cmds...)
-    			} else if m.focused == focusDiff {
-    				m.diffView, cmd = m.diffView.Update(msg)
-    				cmds = append(cmds, cmd)
-    				return m, tea.Batch(cmds...)
-    			}
-    		}
-    	}
-
-    // Only propagate non-key messages to other components to avoid duplicate key handling
-    if _, isKey := msg.(tea.KeyMsg); !isKey {
-        if m.focused != focusRepo {
-            m.repoList, cmd = m.repoList.Update(msg)
-            cmds = append(cmds, cmd)
-        }
-        if m.focused != focusFile {
-            m.fileList, cmd = m.fileList.Update(msg)
-            cmds = append(cmds, cmd)
-        }
-        if m.focused != focusDiff {
-            m.diffView, cmd = m.diffView.Update(msg)
-            cmds = append(cmds, cmd)
-        }
-    }
-
-
-	return m, tea.Batch(cmds...)
+	return nil
 }
 
-func (m model) View() string {
-
-	// Calculate left column width for proper pane sizing
-	leftColumnWidth := int(float64(m.width) * 0.4)
-	rightColumnWidth := m.width - leftColumnWidth - 4 // Subtract 1 to prevent overflow
-
-	paneStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		Padding(0, 1).
-		Width(leftColumnWidth)
-
-	focusedStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
-		Padding(0, 1).
-		Width(leftColumnWidth)
-
-	rightPaneStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		Padding(0, 1).
-		Width(rightColumnWidth)
-
-	// Apply focused styling to the current pane
-	var repoPane, filePane, diffPane string
-	if m.focused == focusRepo {
-		repoPane = focusedStyle.Render(m.repoList.View())
-		filePane = paneStyle.Render(m.fileList.View())
-		diffPane = rightPaneStyle.Render(m.diffView.View())
-	} else if m.focused == focusFile {
-		repoPane = paneStyle.Render(m.repoList.View())
-		filePane = focusedStyle.Render(m.fileList.View())
-		diffPane = rightPaneStyle.Render(m.diffView.View())
-	} else {
-		repoPane = paneStyle.Render(m.repoList.View())
-		filePane = paneStyle.Render(m.fileList.View())
-		diffPane = rightPaneStyle.
-			BorderForeground(lipgloss.Color("62")).
-			Render(m.diffView.View())
+func (a *App) fileCursorUp(g *gocui.Gui, v *gocui.View) error {
+	if a.selectedRepo >= len(a.config.Repositories) {
+		return nil
 	}
 
-	// Create the left column by joining repo and file lists vertically
-	leftColumn := lipgloss.JoinVertical(
-		lipgloss.Left,
-		repoPane,
-		filePane,
-	)
+	if a.selectedFile > 0 {
+		a.selectedFile--
 
-	// Create the right column with the diff view
-	rightColumn := diffPane
+		// Update views
+		a.updateFileView(v)
+		if diffView, err := g.View("diff"); err == nil {
+			a.updateDiffView(diffView)
+		}
+	}
+	return nil
+}
 
-	// Join the two columns horizontally
-	content := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		leftColumn,
-		rightColumn,
-	)
+func (a *App) fileCursorDown(g *gocui.Gui, v *gocui.View) error {
+	if a.selectedRepo >= len(a.config.Repositories) {
+		return nil
+	}
 
-    // Show spinner or help text
-    var help string
-    if m.isFetching {
-        spinnerView := m.spinner.View()
-        fetchText := lipgloss.NewStyle().
-            Foreground(lipgloss.Color("240")).
-            Render(" Fetching remote updates from repositories...")
-        help = spinnerView + fetchText
-    } else {
-        helpText := fmt.Sprintf("Press 'r' to refresh, 'q' to quit, Tab to switch panes, ↑↓/PgUp/PgDn to navigate, Enter to open %s", m.config.EnterCommandBinary)
-        help = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("240")).
-            Width(m.width).
-            Render(helpText)
-    }
+	repo := a.config.Repositories[a.selectedRepo]
+	status := a.gitStatuses[repo]
 
-    joined := lipgloss.JoinVertical(lipgloss.Left, content, help)
-    // Force the final frame to exactly match the terminal size to prevent scrollback growth
-    return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, joined)
+	if a.selectedFile < len(status.Files)-1 {
+		a.selectedFile++
+
+		// Update views
+		a.updateFileView(v)
+		if diffView, err := g.View("diff"); err == nil {
+			a.updateDiffView(diffView)
+		}
+	}
+	return nil
+}
+
+func (a *App) scrollUp(g *gocui.Gui, v *gocui.View) error {
+	ox, oy := v.Origin()
+	if oy > 0 {
+		return v.SetOrigin(ox, oy-1)
+	}
+	return nil
+}
+
+func (a *App) scrollDown(g *gocui.Gui, v *gocui.View) error {
+	ox, oy := v.Origin()
+	return v.SetOrigin(ox, oy+1)
+}
+
+func (a *App) scrollPageUp(g *gocui.Gui, v *gocui.View) error {
+	ox, oy := v.Origin()
+	_, height := v.Size()
+	newY := oy - height
+	if newY < 0 {
+		newY = 0
+	}
+	return v.SetOrigin(ox, newY)
+}
+
+func (a *App) scrollPageDown(g *gocui.Gui, v *gocui.View) error {
+	ox, oy := v.Origin()
+	_, height := v.Size()
+	return v.SetOrigin(ox, oy+height)
+}
+
+func (a *App) spinnerTick(g *gocui.Gui) {
+	for {
+		time.Sleep(100 * time.Millisecond)
+
+		a.mu.Lock()
+		if a.isFetching || len(a.fetchingRepos) > 0 {
+			a.spinnerFrame++
+			a.mu.Unlock()
+
+			// Update views in UI thread
+			g.Update(func(g *gocui.Gui) error {
+				if repoView, err := g.View("repos"); err == nil {
+					a.updateRepoView(repoView)
+				}
+				if helpView, err := g.View("help"); err == nil {
+					a.updateHelpView(helpView)
+				}
+				return nil
+			})
+		} else {
+			a.mu.Unlock()
+		}
+	}
 }
 
 func main() {
@@ -902,27 +796,46 @@ func main() {
 		return
 	}
 
-	m, err := initialModel()
+	// Create app
+	app, err := NewApp()
 	if err != nil {
 		fmt.Printf("Error initializing: %v\n", err)
 		os.Exit(1)
 	}
 
-    // Use the alternate screen to avoid polluting scrollback while the TUI runs.
-    // If running inside tmux, ensure: set -g alternate-screen on
-    p := tea.NewProgram(m, tea.WithAltScreen())
-	finalModel, err := p.Run()
+	// Initialize gocui
+	g, err := gocui.NewGui(gocui.OutputNormal)
 	if err != nil {
-		fmt.Printf("Error running program: %v\n", err)
-		os.Exit(1)
+		log.Fatal(err)
+	}
+	defer g.Close()
+
+	app.gui = g
+	g.SetManagerFunc(app.layout)
+
+	if err := app.keybindings(g); err != nil {
+		log.Fatal(err)
 	}
 
-	// Check if we need to launch the configured binary
-	if result, ok := finalModel.(model); ok && result.launchLazyGit {
-		commandTemplate := result.config.EnterCommandBinary
+	// Start spinner animation
+	go app.spinnerTick(g)
+
+	// Start fetching remotes in background
+	if len(app.config.Repositories) > 0 {
+		go app.fetchRemotesAsync()
+	}
+
+	// Run the main loop
+	if err := g.MainLoop(); err != nil && err != gocui.ErrQuit {
+		log.Fatal(err)
+	}
+
+	// Check if we need to launch the external command
+	if app.launchLazyGit {
+		commandTemplate := app.config.EnterCommandBinary
 
 		// Replace $REPO with the selected repository path
-		command := strings.ReplaceAll(commandTemplate, "$REPO", result.lazyGitRepo)
+		command := strings.ReplaceAll(commandTemplate, "$REPO", app.lazyGitRepo)
 
 		// Split the command into program and arguments
 		parts := strings.Fields(command)
