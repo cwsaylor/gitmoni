@@ -19,6 +19,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Version is set via ldflags at build time
+var Version = "dev"
+
 
 type focusedPane int
 
@@ -859,7 +862,15 @@ func main() {
 	addRepo := flag.String("a", "", "Add a repository to the config")
 	listRepos := flag.Bool("l", false, "List repositories in the config")
 	deleteRepo := flag.String("d", "", "Delete a repository from the config")
+	versionShort := flag.Bool("v", false, "Display version")
+	versionLong := flag.Bool("version", false, "Display version")
 	flag.Parse()
+
+	// Handle version flags
+	if *versionShort || *versionLong {
+		fmt.Println(Version)
+		return
+	}
 
 	// Handle add repository command
 	if *addRepo != "" {
