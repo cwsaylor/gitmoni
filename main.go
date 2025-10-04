@@ -610,10 +610,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "enter":
 			if len(m.config.Repositories) > 0 {
-				// Set flag to launch lazygit and quit
-				m.launchLazyGit = true
-				m.lazyGitRepo = m.config.Repositories[m.selectedRepo]
-				return m, tea.Quit
+				// Check if the command starts with "github" - if so, launch in background
+				if strings.HasPrefix(m.config.EnterCommandBinary, "github") {
+					// Launch GitHub Desktop in background and continue running TUI
+					repo := m.config.Repositories[m.selectedRepo]
+					commandTemplate := m.config.EnterCommandBinary
+					command := strings.ReplaceAll(commandTemplate, "$REPO", repo)
+					parts := strings.Fields(command)
+					if len(parts) > 0 {
+						var cmd *exec.Cmd
+						if len(parts) == 1 {
+							cmd = exec.Command(parts[0])
+						} else {
+							cmd = exec.Command(parts[0], parts[1:]...)
+						}
+						// Start the GUI in background
+						cmd.Start()
+					}
+					// Don't quit - return to TUI
+					return m, nil
+				} else {
+					// For TUI apps like lazygit, set flag to launch and quit
+					m.launchLazyGit = true
+					m.lazyGitRepo = m.config.Repositories[m.selectedRepo]
+					return m, tea.Quit
+				}
 			}
 		}
 	}
