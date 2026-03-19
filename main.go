@@ -758,6 +758,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+	// Guard against rendering before the first WindowSizeMsg arrives.
+	// Without valid dimensions the layout math produces negative widths
+	// and misaligned borders.
+	if m.width == 0 || m.height == 0 {
+		return ""
+	}
 
 	// Calculate left column width for proper pane sizing
 	leftColumnWidth := int(float64(m.width) * 0.4)
