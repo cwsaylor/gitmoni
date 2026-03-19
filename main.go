@@ -42,7 +42,11 @@ type repoFetchStartMsg struct {
 // repoFetchCompleteMsg is sent when a specific repo completes fetching
 type repoFetchCompleteMsg struct {
 	repo string
+	err  error
 }
+
+// layoutGap is the horizontal gap subtracted when computing the right column width.
+const layoutGap = 4
 
 type model struct {
 	config          *Config
@@ -356,6 +360,12 @@ func initialModel() (model, error) {
 	}
 
 	if len(config.Repositories) > 0 {
+		// Mark all repos as fetching before Init() runs (Init is a value receiver,
+		// so mutations there would be lost).
+		for _, repo := range config.Repositories {
+			m.fetchingRepos[repo] = true
+		}
+
 		// Do initial status check without fetching
 		m.updateGitStatuses()
 		m.updateRepoList()
@@ -421,6 +431,7 @@ func (m *model) updateFileList() {
 func (m *model) selectRepo(index int) {
 	if index >= 0 && index < len(m.config.Repositories) {
 		m.selectedRepo = index
+		m.selectedFile = 0
 		m.repoList.Select(index)
 		m.updateFileList()
 		if len(m.fileList.Items()) > 0 {
@@ -444,7 +455,10 @@ func (m *model) selectFile(index int) {
 func (m *model) updateDiff() {
 	items := m.fileList.Items()
 	if m.selectedFile >= 0 && m.selectedFile < len(items) {
-		fileItem := items[m.selectedFile].(fileItem)
+		fileItem, ok := items[m.selectedFile].(fileItem)
+		if !ok {
+			return
+		}
 		repo := m.config.Repositories[m.selectedRepo]
 
 		diff, err := getFileDiff(repo, fileItem.gitFile.Path)
@@ -462,14 +476,45 @@ func (m *model) updateDiff() {
 	}
 }
 
+// handleNavigation routes a key event to the currently focused pane and
+// syncs selection state accordingly.
+func (m *model) handleNavigation(msg tea.KeyMsg, cmds *[]tea.Cmd, cmd tea.Cmd) tea.Cmd {
+	switch m.focused {
+	case focusRepo:
+		m.repoList, cmd = m.repoList.Update(msg)
+		*cmds = append(*cmds, cmd)
+		if m.repoList.SelectedItem() != nil {
+			m.selectedRepo = m.repoList.Index()
+			m.updateFileList()
+			if len(m.fileList.Items()) > 0 {
+				m.selectFile(0)
+			} else {
+				m.currentDiff = ""
+				m.diffView.SetContent("")
+			}
+		}
+	case focusFile:
+		m.fileList, cmd = m.fileList.Update(msg)
+		*cmds = append(*cmds, cmd)
+		if m.fileList.SelectedItem() != nil {
+			m.selectedFile = m.fileList.Index()
+			m.updateDiff()
+		}
+	case focusDiff:
+		m.diffView, cmd = m.diffView.Update(msg)
+		*cmds = append(*cmds, cmd)
+	}
+	return tea.Batch(*cmds...)
+}
+
 // fetchRemotesCmd returns a command that fetches all remotes concurrently
 func fetchRemotesCmd(repos []string) tea.Cmd {
 	var cmds []tea.Cmd
 	for _, repo := range repos {
 		r := repo // Capture for closure
 		cmds = append(cmds, func() tea.Msg {
-			fetchRemoteUpdates(r)
-			return repoFetchCompleteMsg{repo: r}
+			err := fetchRemoteUpdates(r)
+			return repoFetchCompleteMsg{repo: r, err: err}
 		})
 	}
 
@@ -477,19 +522,13 @@ func fetchRemotesCmd(repos []string) tea.Cmd {
 }
 
 func (m model) Init() tea.Cmd {
-	// Start spinner and fetch remotes in background
+	// Start spinner and fetch remotes in background.
+	// Note: fetchingRepos is populated in initialModel() because Init() is a
+	// value receiver — mutations here would be lost.
 	if m.isFetching && len(m.config.Repositories) > 0 {
 		var cmds []tea.Cmd
-		// Mark all repos as fetching and start their spinners
+		// Start each repo's spinner tick
 		for _, repo := range m.config.Repositories {
-			m.fetchingRepos[repo] = true
-			// Initialize and start each repo's spinner
-			if _, exists := m.repoSpinners[repo]; !exists {
-				s := spinner.New()
-				s.Spinner = spinner.Dot
-				s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
-				m.repoSpinners[repo] = s
-			}
 			if s, exists := m.repoSpinners[repo]; exists {
 				cmds = append(cmds, s.Tick)
 			}
@@ -511,7 +550,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         // Mark repo as no longer fetching and update its status
         delete(m.fetchingRepos, msg.repo)
         // Update just this repo's status
-        m.gitStatuses[msg.repo] = checkGitStatus(msg.repo)
+        status := checkGitStatus(msg.repo)
+        if msg.err != nil && !status.HasError {
+            status.RemoteStatus = fmt.Sprintf("Fetch failed: %s", msg.err)
+        }
+        m.gitStatuses[msg.repo] = status
         m.updateRepoList()
         // If this was the selected repo, update the file list
         if m.selectedRepo < len(m.config.Repositories) && m.config.Repositories[m.selectedRepo] == msg.repo {
@@ -570,7 +613,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// 2-column layout: left column (40%) for repo and file lists, right column (60%) for diff
 		leftColumnWidth := int(float64(m.width) * 0.4)
-		rightColumnWidth := m.width - leftColumnWidth - 4 // Subtract 1 to prevent overflow
+		rightColumnWidth := m.width - leftColumnWidth - layoutGap
 
 		// Help text takes up some vertical space
 		helpHeight := 2 // Help text + some padding
@@ -636,149 +679,63 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Quit
 				}
 			}
+		case "tab":
+			// Switch focus between repo, file, and diff panes
+			if m.focused == focusRepo {
+				m.focused = focusFile
+			} else if m.focused == focusFile {
+				m.focused = focusDiff
+			} else {
+				m.focused = focusRepo
+			}
+		case "shift+tab":
+			// Switch focus backwards between repo, file, and diff panes
+			if m.focused == focusRepo {
+				m.focused = focusDiff
+			} else if m.focused == focusFile {
+				m.focused = focusRepo
+			} else {
+				m.focused = focusFile
+			}
+		case "up", "k":
+			return m, m.handleNavigation(msg, &cmds, cmd)
+		case "down", "j":
+			return m, m.handleNavigation(msg, &cmds, cmd)
+		case "r":
+			// Refresh both local status and fetch remote updates
+			m.updateGitStatuses()
+			m.updateRepoList()
+			m.updateFileList()
+
+			// Also fetch remote updates for all repositories asynchronously
+			if !m.isFetching {
+				var fetchCmds []tea.Cmd
+				m.isFetching = true
+				// Mark all repos as fetching and start their spinners
+				for _, repo := range m.config.Repositories {
+					m.fetchingRepos[repo] = true
+					// Ensure spinner exists and start it
+					if _, exists := m.repoSpinners[repo]; !exists {
+						s := spinner.New()
+						s.Spinner = spinner.Dot
+						s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+						m.repoSpinners[repo] = s
+					}
+					if s, exists := m.repoSpinners[repo]; exists {
+						fetchCmds = append(fetchCmds, s.Tick)
+					}
+				}
+				m.updateRepoList() // Update to show spinners
+				// Add global spinner and fetch command
+				fetchCmds = append(fetchCmds, m.spinner.Tick)
+				fetchCmds = append(fetchCmds, fetchRemotesCmd(m.config.Repositories))
+				return m, tea.Batch(fetchCmds...)
+			}
+		default:
+			// Forward all other key events (e.g. PgUp/PgDn) to the focused pane only
+			return m, m.handleNavigation(msg, &cmds, cmd)
 		}
 	}
-
-		switch msg := msg.(type) {
-    	case tea.KeyMsg:
-    		switch msg.String() {
-    		case "tab":
-    			// Switch focus between repo, file, and diff panes
-    			if m.focused == focusRepo {
-    				m.focused = focusFile
-    			} else if m.focused == focusFile {
-    				m.focused = focusDiff
-    			} else {
-    				m.focused = focusRepo
-    			}
-    		case "shift+tab":
-    			// Switch focus backwards between repo, file, and diff panes
-    			if m.focused == focusRepo {
-    				m.focused = focusDiff
-    			} else if m.focused == focusFile {
-    				m.focused = focusRepo
-    			} else {
-    				m.focused = focusFile
-    			}
-    		case "up", "k":
-    			// Route navigation to the focused pane only
-    			if m.focused == focusRepo {
-    				m.repoList, cmd = m.repoList.Update(msg)
-    				cmds = append(cmds, cmd)
-    				if m.repoList.SelectedItem() != nil {
-    					m.selectedRepo = m.repoList.Index()
-    					m.updateFileList()
-    					if len(m.fileList.Items()) > 0 {
-    						m.selectFile(0)
-    					} else {
-    						m.currentDiff = ""
-    						m.diffView.SetContent("")
-    					}
-    				}
-    				return m, tea.Batch(cmds...)
-    			} else if m.focused == focusFile {
-    				m.fileList, cmd = m.fileList.Update(msg)
-    				cmds = append(cmds, cmd)
-    				if m.fileList.SelectedItem() != nil {
-    					m.selectedFile = m.fileList.Index()
-    					m.updateDiff()
-    				}
-    				return m, tea.Batch(cmds...)
-    			} else if m.focused == focusDiff {
-    				m.diffView, cmd = m.diffView.Update(msg)
-    				cmds = append(cmds, cmd)
-    				return m, tea.Batch(cmds...)
-    			}
-    		case "down", "j":
-    			// Route navigation to the focused pane only
-    			if m.focused == focusRepo {
-    				m.repoList, cmd = m.repoList.Update(msg)
-    				cmds = append(cmds, cmd)
-    				if m.repoList.SelectedItem() != nil {
-    					m.selectedRepo = m.repoList.Index()
-    					m.updateFileList()
-    					if len(m.fileList.Items()) > 0 {
-    						m.selectFile(0)
-    					} else {
-    						m.currentDiff = ""
-    						m.diffView.SetContent("")
-    					}
-    				}
-    				return m, tea.Batch(cmds...)
-    			} else if m.focused == focusFile {
-    				m.fileList, cmd = m.fileList.Update(msg)
-    				cmds = append(cmds, cmd)
-    				if m.fileList.SelectedItem() != nil {
-    					m.selectedFile = m.fileList.Index()
-    					m.updateDiff()
-    				}
-    				return m, tea.Batch(cmds...)
-    			} else if m.focused == focusDiff {
-    				m.diffView, cmd = m.diffView.Update(msg)
-    				cmds = append(cmds, cmd)
-    				return m, tea.Batch(cmds...)
-    			}
-    		case "r":
-    			// Refresh both local status and fetch remote updates
-    			m.updateGitStatuses()
-    			m.updateRepoList()
-    			m.updateFileList()
-
-    			// Also fetch remote updates for all repositories asynchronously
-    			if !m.isFetching {
-    				var fetchCmds []tea.Cmd
-    				m.isFetching = true
-    				// Mark all repos as fetching and start their spinners
-    				for _, repo := range m.config.Repositories {
-    					m.fetchingRepos[repo] = true
-    					// Ensure spinner exists and start it
-    					if _, exists := m.repoSpinners[repo]; !exists {
-    						s := spinner.New()
-    						s.Spinner = spinner.Dot
-    						s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
-    						m.repoSpinners[repo] = s
-    					}
-    					if s, exists := m.repoSpinners[repo]; exists {
-    						fetchCmds = append(fetchCmds, s.Tick)
-    					}
-    				}
-    				m.updateRepoList() // Update to show spinners
-    				// Add global spinner and fetch command
-    				fetchCmds = append(fetchCmds, m.spinner.Tick)
-    				fetchCmds = append(fetchCmds, fetchRemotesCmd(m.config.Repositories))
-    				return m, tea.Batch(fetchCmds...)
-    			}
-    		default:
-    			// Forward all other key events (e.g. PgUp/PgDn) to the focused pane only
-    			if m.focused == focusRepo {
-    				m.repoList, cmd = m.repoList.Update(msg)
-    				cmds = append(cmds, cmd)
-    				if m.repoList.SelectedItem() != nil {
-    					m.selectedRepo = m.repoList.Index()
-    					m.updateFileList()
-    					if len(m.fileList.Items()) > 0 {
-    						m.selectFile(0)
-    					} else {
-    						m.currentDiff = ""
-    						m.diffView.SetContent("")
-    					}
-    				}
-    				return m, tea.Batch(cmds...)
-    			} else if m.focused == focusFile {
-    				m.fileList, cmd = m.fileList.Update(msg)
-    				cmds = append(cmds, cmd)
-    				if m.fileList.SelectedItem() != nil {
-    					m.selectedFile = m.fileList.Index()
-    					m.updateDiff()
-    				}
-    				return m, tea.Batch(cmds...)
-    			} else if m.focused == focusDiff {
-    				m.diffView, cmd = m.diffView.Update(msg)
-    				cmds = append(cmds, cmd)
-    				return m, tea.Batch(cmds...)
-    			}
-    		}
-    	}
 
     // Only propagate non-key messages to other components to avoid duplicate key handling
     if _, isKey := msg.(tea.KeyMsg); !isKey {
@@ -804,7 +761,7 @@ func (m model) View() string {
 
 	// Calculate left column width for proper pane sizing
 	leftColumnWidth := int(float64(m.width) * 0.4)
-	rightColumnWidth := m.width - leftColumnWidth - 4 // Subtract 1 to prevent overflow
+	rightColumnWidth := m.width - leftColumnWidth - layoutGap
 
 	paneStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

@@ -99,12 +99,14 @@ func getFileDiff(repoPath, filePath string) (string, error) {
 			cmd.Dir = repoPath
 			statusOutput, statusErr := cmd.Output()
 			if statusErr == nil && strings.HasPrefix(strings.TrimSpace(string(statusOutput)), "??") {
-				// File is untracked, show its content
-				cmd = exec.Command("cat", filePath)
-				cmd.Dir = repoPath
-				content, contentErr := cmd.Output()
-				if contentErr == nil {
-					return fmt.Sprintf("New file: %s\n\n%s", filePath, string(content)), nil
+				// File is untracked, show its content using os.ReadFile
+				// Sanitize path to prevent directory traversal
+				cleanPath := filepath.Join(repoPath, filepath.Clean(filePath))
+				if strings.HasPrefix(cleanPath, filepath.Clean(repoPath)+string(filepath.Separator)) {
+					content, contentErr := os.ReadFile(cleanPath)
+					if contentErr == nil {
+						return fmt.Sprintf("New file: %s\n\n%s", filePath, string(content)), nil
+					}
 				}
 			}
 		}

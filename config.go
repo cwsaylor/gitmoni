@@ -49,15 +49,6 @@ func (c *Config) saveConfig() error {
 	return os.WriteFile(configPath, data, 0644)
 }
 
-func (c *Config) addRepository(path string) {
-	for _, repo := range c.Repositories {
-		if repo == path {
-			return
-		}
-	}
-	c.Repositories = append(c.Repositories, path)
-}
-
 func (c *Config) addRepositoryWithPath(path string) bool {
 	// Convert path to absolute for comparison
 	absPath, err := filepath.Abs(path)
