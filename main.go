@@ -492,12 +492,22 @@ func repoChangePriority(item repoItem) int {
 	}
 }
 
+// selectedRepoPath returns the path of the currently selected repo from the
+// displayed (sorted) list, not from the config array.
+func (m *model) selectedRepoPath() string {
+	item := m.repoList.SelectedItem()
+	if item == nil {
+		return ""
+	}
+	return item.(repoItem).path
+}
+
 func (m *model) updateFileList() {
-	if m.selectedRepo >= len(m.config.Repositories) {
+	repo := m.selectedRepoPath()
+	if repo == "" {
+		m.fileList.SetItems([]list.Item{})
 		return
 	}
-
-	repo := m.config.Repositories[m.selectedRepo]
 	status, exists := m.gitStatuses[repo]
 	if !exists || status.HasError {
 		m.fileList.SetItems([]list.Item{})
@@ -512,7 +522,7 @@ func (m *model) updateFileList() {
 }
 
 func (m *model) selectRepo(index int) {
-	if index >= 0 && index < len(m.config.Repositories) {
+	if index >= 0 && index < len(m.repoList.Items()) {
 		m.selectedRepo = index
 		m.selectedFile = 0
 		m.repoList.Select(index)
@@ -542,7 +552,7 @@ func (m *model) updateDiff() {
 		if !ok {
 			return
 		}
-		repo := m.config.Repositories[m.selectedRepo]
+		repo := m.selectedRepoPath()
 
 		diff, err := getFileDiff(repo, fileItem.gitFile.Path)
 		if err != nil {
@@ -640,7 +650,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         m.gitStatuses[msg.repo] = status
         m.updateRepoList()
         // If this was the selected repo, update the file list
-        if m.selectedRepo < len(m.config.Repositories) && m.config.Repositories[m.selectedRepo] == msg.repo {
+        if m.selectedRepoPath() == msg.repo {
             m.updateFileList()
             if len(m.fileList.Items()) > 0 {
                 m.updateDiff()
@@ -735,11 +745,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		case "enter":
-			if len(m.config.Repositories) > 0 {
+			if repo := m.selectedRepoPath(); repo != "" {
 				// Check if the command starts with "github" - if so, launch in background
 				if strings.HasPrefix(m.config.EnterCommandBinary, "github") {
 					// Launch GitHub Desktop in background and continue running TUI
-					repo := m.config.Repositories[m.selectedRepo]
 					commandTemplate := m.config.EnterCommandBinary
 					command := strings.ReplaceAll(commandTemplate, "$REPO", repo)
 					parts := strings.Fields(command)
@@ -758,7 +767,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					// For TUI apps like lazygit, set flag to launch and quit
 					m.launchLazyGit = true
-					m.lazyGitRepo = m.config.Repositories[m.selectedRepo]
+					m.lazyGitRepo = repo
 					return m, tea.Quit
 				}
 			}
