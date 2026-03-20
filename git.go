@@ -10,6 +10,7 @@ import (
 
 type GitStatus struct {
 	Path          string
+	Branch        string
 	Files         []GitFile
 	IsRepo        bool
 	HasError      bool
@@ -67,6 +68,13 @@ func checkGitStatus(repoPath string) GitStatus {
 				Status: status,
 			})
 		}
+	}
+
+	// Get current branch
+	branchCmd := exec.Command("git", "branch", "--show-current")
+	branchCmd.Dir = repoPath
+	if branchOutput, branchErr := branchCmd.Output(); branchErr == nil {
+		result.Branch = strings.TrimSpace(string(branchOutput))
 	}
 
 	// Check remote status

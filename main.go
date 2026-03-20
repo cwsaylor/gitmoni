@@ -20,7 +20,7 @@ import (
 )
 
 // Version is set via ldflags at build time
-var Version = "0.7.0"
+var Version = "0.8.0"
 
 
 type focusedPane int
@@ -132,13 +132,18 @@ func (i repoItem) Description() string {
 		return i.status.Error
 	}
 
+	branchPrefix := ""
+	if i.status.Branch != "" {
+		branchPrefix = i.status.Branch + " • "
+	}
+
 	baseDesc := ""
 	if len(i.status.Files) == 0 {
-		baseDesc = "No changes"
+		baseDesc = branchPrefix + "No changes"
 	} else if len(i.status.Files) == 1 {
-		baseDesc = "1 changed file"
+		baseDesc = branchPrefix + "1 changed file"
 	} else {
-		baseDesc = fmt.Sprintf("%d changed files", len(i.status.Files))
+		baseDesc = fmt.Sprintf("%s%d changed files", branchPrefix, len(i.status.Files))
 	}
 
 	// Show spinner and "Updating" when fetching
