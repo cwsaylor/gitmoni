@@ -122,9 +122,12 @@ func (i repoItem) Title() string {
 		title = fmt.Sprintf("%s %s%s (%d)", icons.Changed, pullIcon, i.path, len(i.status.Files))
 	}
 
-	// Apply green color to repos with changes
+	// Apply green color to repos with changes, yellow to repos behind remote
 	if len(i.status.Files) > 0 && !i.status.HasError {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(title)
+	}
+	if i.status.HasRemote && i.status.NeedsPull && !i.status.HasError {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(title)
 	}
 	return title
 }
