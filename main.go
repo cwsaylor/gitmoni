@@ -98,11 +98,12 @@ func getIcons(iconStyle string) Icon {
 }
 
 type repoItem struct {
-	path       string
-	status     GitStatus
-	iconStyle  string
-	isFetching bool
-	spinner    spinner.Model
+	path            string
+	status          GitStatus
+	iconStyle       string
+	displayFullPath bool
+	isFetching      bool
+	spinner         spinner.Model
 }
 
 func (i repoItem) FilterValue() string { return i.path }
@@ -113,13 +114,18 @@ func (i repoItem) Title() string {
 		pullIcon = icons.Pull + " "
 	}
 
+	displayName := i.path
+	if !i.displayFullPath {
+		displayName = filepath.Base(i.path)
+	}
+
 	title := ""
 	if i.status.HasError {
-		title = fmt.Sprintf("%s %s%s", icons.Error, pullIcon, i.path)
+		title = fmt.Sprintf("%s %s%s", icons.Error, pullIcon, displayName)
 	} else if len(i.status.Files) == 0 {
-		title = fmt.Sprintf("%s %s%s", icons.Success, pullIcon, i.path)
+		title = fmt.Sprintf("%s %s%s", icons.Success, pullIcon, displayName)
 	} else {
-		title = fmt.Sprintf("%s %s%s (%d)", icons.Changed, pullIcon, i.path, len(i.status.Files))
+		title = fmt.Sprintf("%s %s%s (%d)", icons.Changed, pullIcon, displayName, len(i.status.Files))
 	}
 
 	// Apply green color to repos with changes, yellow to repos behind remote
@@ -408,11 +414,12 @@ func (m *model) updateRepoList() {
 		}
 
 		items = append(items, repoItem{
-			path:       repo,
-			status:     status,
-			iconStyle:  m.config.IconStyle,
-			isFetching: m.fetchingRepos[repo],
-			spinner:    s,
+			path:            repo,
+			status:          status,
+			iconStyle:       m.config.IconStyle,
+			displayFullPath: m.config.DisplayFullPath,
+			isFetching:      m.fetchingRepos[repo],
+			spinner:         s,
 		})
 	}
 	// Sort by path if alphabetical order is configured

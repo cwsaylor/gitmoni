@@ -12,6 +12,7 @@ type Config struct {
 	IconStyle         string   `json:"icon_style"`          // "emoji" or "glyphs"
 	SortOrder         string   `json:"sort_order"`          // "manual" or "alphabetical"
 	SortChangedToTop  bool     `json:"sort_changed_to_top"` // push changed/behind repos to top
+	DisplayFullPath   bool     `json:"display_full_path"`   // show full path or just directory name
 }
 
 func defaultConfig() *Config {
