@@ -95,7 +95,9 @@ GitMoni stores its configuration in `~/.gitmoni.json`, or in the current directo
     "/home/user/work/repo1"
   ],
   "enter_command_binary": "lazygit -p $REPO",
-  "icon_style": "glyphs"
+  "icon_style": "glyphs",
+  "sort_order": "alphabetical",
+  "sort_changed_to_top": true
 }
 ```
 
@@ -106,6 +108,11 @@ GitMoni stores its configuration in `~/.gitmoni.json`, or in the current directo
 - **`icon_style`**: Display style for status indicators
   - `"emoji"` (default): Use emoji icons (❌ ✅ 🔄 ⬇️)
   - `"glyphs"`: Use Nerd Font glyphs (   )
+
+- **`sort_order`**: How repositories are ordered in the list
+  - `"alphabetical"` (default): Sort repositories by path
+  - `"manual"`: Display repositories in config file order
+- **`sort_changed_to_top`**: Float repositories with uncommitted changes or that are behind remote to the top of the list (`true` by default)
 
 **Note**: When using `"glyphs"`, you need a [Nerd Font](https://www.nerdfonts.com) installed in your terminal (e.g., Hack Nerd Font, FiraCode Nerd Font, etc.)
 

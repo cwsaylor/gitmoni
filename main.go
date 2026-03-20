@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
@@ -411,6 +412,30 @@ func (m *model) updateRepoList() {
 			spinner:    s,
 		})
 	}
+	// Sort by path if alphabetical order is configured
+	if m.config.SortOrder == "alphabetical" {
+		slices.SortStableFunc(items, func(a, b list.Item) int {
+			return strings.Compare(a.(repoItem).path, b.(repoItem).path)
+		})
+	}
+
+	// Float changed/behind repos to top if configured
+	if m.config.SortChangedToTop {
+		slices.SortStableFunc(items, func(a, b list.Item) int {
+			aItem := a.(repoItem)
+			bItem := b.(repoItem)
+			aChanged := len(aItem.status.Files) > 0 || aItem.status.NeedsPull
+			bChanged := len(bItem.status.Files) > 0 || bItem.status.NeedsPull
+			if aChanged == bChanged {
+				return 0
+			}
+			if aChanged {
+				return -1
+			}
+			return 1
+		})
+	}
+
 	m.repoList.SetItems(items)
 }
 

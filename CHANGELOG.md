@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Show current branch name in each repo's description line
+- Configurable repo sorting via `sort_order`: `"manual"` (default) or `"alphabetical"`
+- Option to float changed/behind repos to top via `sort_changed_to_top`
 
 ## [0.7.0] - 2026-03-19
 

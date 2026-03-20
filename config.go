@@ -9,15 +9,23 @@ import (
 type Config struct {
 	Repositories      []string `json:"repositories"`
 	EnterCommandBinary string   `json:"enter_command_binary"`
-	IconStyle         string   `json:"icon_style"` // "emoji" or "glyphs"
+	IconStyle         string   `json:"icon_style"`          // "emoji" or "glyphs"
+	SortOrder         string   `json:"sort_order"`          // "manual" or "alphabetical"
+	SortChangedToTop  bool     `json:"sort_changed_to_top"` // push changed/behind repos to top
+}
+
+func defaultConfig() *Config {
+	return &Config{
+		Repositories:       []string{},
+		EnterCommandBinary: "lazygit", // default to lazygit
+		IconStyle:          "emoji",   // default to emoji
+		SortOrder:          "alphabetical", // default to alphabetical order
+		SortChangedToTop:   true,           // default to floating changed repos to top
+	}
 }
 
 func loadConfig() (*Config, error) {
-	config := &Config{
-		Repositories:      []string{},
-		EnterCommandBinary: "lazygit", // default to lazygit
-		IconStyle:         "emoji",    // default to emoji
-	}
+	config := defaultConfig()
 
 	configPaths := []string{
 		".gitmoni.json",
@@ -25,11 +33,27 @@ func loadConfig() (*Config, error) {
 	}
 
 	for _, path := range configPaths {
-		if data, err := os.ReadFile(path); err == nil {
-			if err := json.Unmarshal(data, config); err == nil {
-				return config, nil
-			}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
 		}
+		if err := json.Unmarshal(data, config); err != nil {
+			continue
+		}
+		// Re-marshal the config with all fields (including new defaults)
+		// and compare to what's on disk. If they differ, write back so
+		// newly added fields appear in the file.
+		updated, err := json.MarshalIndent(config, "", "  ")
+		if err == nil && string(updated) != string(data) {
+			os.WriteFile(path, updated, 0644)
+		}
+		return config, nil
+	}
+
+	// No config file found — write defaults to home directory
+	homePath := filepath.Join(os.Getenv("HOME"), ".gitmoni.json")
+	if data, err := json.MarshalIndent(config, "", "  "); err == nil {
+		os.WriteFile(homePath, data, 0644)
 	}
 
 	return config, nil
