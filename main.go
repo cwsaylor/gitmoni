@@ -130,10 +130,10 @@ func (i repoItem) Title() string {
 
 	// Apply green color to repos with changes, yellow to repos behind remote
 	if len(i.status.Files) > 0 && !i.status.HasError {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render(title)
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#a6d189")).Render(title)
 	}
 	if i.status.HasRemote && i.status.NeedsPull && !i.status.HasError {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(title)
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#ef9f76")).Render(title)
 	}
 	return title
 }
@@ -224,7 +224,7 @@ func applySyntaxHighlighting(content, filePath string) string {
 	}
 
 	// Use a terminal-friendly style
-	style := styles.Get("github-dark")
+	style := styles.Get("catppuccin-frappe")
 	if style == nil {
 		style = styles.Fallback
 	}
@@ -342,15 +342,46 @@ func initialModel() (model, error) {
 	}
 
 
+	// Catppuccin Frappé palette
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#c6d0f5")). // Text
+		Bold(true)
+	selectedStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#c6d0f5")). // Text
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(lipgloss.Color("#ca9ee6")). // Mauve
+		Padding(0, 0, 0, 1)
+	selectedDescStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#a5adce")). // Subtext0
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(lipgloss.Color("#ca9ee6")). // Mauve
+		Padding(0, 0, 0, 1)
+	normalStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#c6d0f5")). // Text
+		Padding(0, 0, 0, 2)
+	normalDescStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#737994")). // Overlay0
+		Padding(0, 0, 0, 2)
+
 	repoDelegate := list.NewDefaultDelegate()
+	repoDelegate.Styles.SelectedTitle = selectedStyle
+	repoDelegate.Styles.SelectedDesc = selectedDescStyle
+	repoDelegate.Styles.NormalTitle = normalStyle
+	repoDelegate.Styles.NormalDesc = normalDescStyle
 	repoList := list.New([]list.Item{}, repoDelegate, 0, 0)
 	repoList.Title = "Repositories"
+	repoList.Styles.Title = titleStyle
 	repoList.SetShowStatusBar(false)
 	repoList.SetShowPagination(false)
 
 	fileDelegate := list.NewDefaultDelegate()
+	fileDelegate.Styles.SelectedTitle = selectedStyle
+	fileDelegate.Styles.SelectedDesc = selectedDescStyle
+	fileDelegate.Styles.NormalTitle = normalStyle
+	fileDelegate.Styles.NormalDesc = normalDescStyle
 	fileList := list.New([]list.Item{}, fileDelegate, 0, 0)
 	fileList.Title = "Changed Files"
+	fileList.Styles.Title = titleStyle
 	fileList.SetShowStatusBar(false)
 	fileList.SetShowPagination(false)
 
@@ -359,7 +390,7 @@ func initialModel() (model, error) {
 	// Initialize spinner
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63")) // Bright blue color
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#babbf1")) // Bright blue color
 
 	m := model{
 		config:        config,
@@ -409,7 +440,7 @@ func (m *model) updateRepoList() {
 		if !exists {
 			s = spinner.New()
 			s.Spinner = spinner.Dot
-			s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+			s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#babbf1"))
 			m.repoSpinners[repo] = s
 		}
 
@@ -770,7 +801,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if _, exists := m.repoSpinners[repo]; !exists {
 						s := spinner.New()
 						s.Spinner = spinner.Dot
-						s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
+						s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#babbf1"))
 						m.repoSpinners[repo] = s
 					}
 					if s, exists := m.repoSpinners[repo]; exists {
@@ -828,7 +859,7 @@ func (m model) View() string {
 
 	focusedStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
+		BorderForeground(lipgloss.Color("#ca9ee6")).
 		Padding(0, 1).
 		Width(leftColumnWidth)
 
@@ -851,7 +882,7 @@ func (m model) View() string {
 		repoPane = paneStyle.Render(m.repoList.View())
 		filePane = paneStyle.Render(m.fileList.View())
 		diffPane = rightPaneStyle.
-			BorderForeground(lipgloss.Color("62")).
+			BorderForeground(lipgloss.Color("#ca9ee6")).
 			Render(m.diffView.View())
 	}
 
@@ -877,13 +908,13 @@ func (m model) View() string {
     if m.isFetching {
         spinnerView := m.spinner.View()
         fetchText := lipgloss.NewStyle().
-            Foreground(lipgloss.Color("240")).
+            Foreground(lipgloss.Color("#737994")).
             Render(" Fetching remote updates from repositories...")
         help = spinnerView + fetchText
     } else {
         helpText := fmt.Sprintf("Press 'r' to refresh, 'q' to quit, Tab to switch panes, ↑↓/PgUp/PgDn to navigate, Enter to open %s", m.config.EnterCommandBinary)
         help = lipgloss.NewStyle().
-            Foreground(lipgloss.Color("240")).
+            Foreground(lipgloss.Color("#737994")).
             Width(m.width).
             Render(helpText)
     }
