@@ -11,11 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Show current branch name in each repo's description line
 - Configurable repo sorting via `sort_order`: `"manual"` or `"alphabetical"` (default)
-- Option to float changed/behind repos to top via `sort_changed_to_top` (default `true`)
-- Highlight repos behind remote in yellow
+- Option to float changed/behind repos to top via `sort_changed_to_top` (default `true`), grouped by priority: both changed, remote only, local only, clean
+- Highlight repos behind remote in yellow (Peach)
 - Show repo directory name instead of full path by default (`display_full_path` option)
 - Auto-backfill missing config fields to existing config files
 - Write default config to `~/.gitmoni.json` on first run
+
+### Changed
+
+- Switch color scheme to Catppuccin Frappé (UI colors, list styles, and syntax highlighting)
 
 ## [0.7.0] - 2026-03-19
 
