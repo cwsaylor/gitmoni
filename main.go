@@ -429,24 +429,36 @@ func (m *model) updateRepoList() {
 		})
 	}
 
-	// Float changed/behind repos to top if configured
+	// Float changed/behind repos to top if configured, grouped by priority:
+	// 1. Both local changes and behind remote
+	// 2. Behind remote only
+	// 3. Local changes only
+	// 4. Clean repos
+	// Within each group, the primary sort_order is preserved (stable sort).
 	if m.config.SortChangedToTop {
 		slices.SortStableFunc(items, func(a, b list.Item) int {
-			aItem := a.(repoItem)
-			bItem := b.(repoItem)
-			aChanged := len(aItem.status.Files) > 0 || aItem.status.NeedsPull
-			bChanged := len(bItem.status.Files) > 0 || bItem.status.NeedsPull
-			if aChanged == bChanged {
-				return 0
-			}
-			if aChanged {
-				return -1
-			}
-			return 1
+			return repoChangePriority(a.(repoItem)) - repoChangePriority(b.(repoItem))
 		})
 	}
 
 	m.repoList.SetItems(items)
+}
+
+// repoChangePriority returns a sort key for grouping repos by change state.
+// Lower values sort first.
+func repoChangePriority(item repoItem) int {
+	hasLocal := len(item.status.Files) > 0
+	hasRemote := item.status.HasRemote && item.status.NeedsPull
+	switch {
+	case hasLocal && hasRemote:
+		return 0
+	case hasRemote:
+		return 1
+	case hasLocal:
+		return 2
+	default:
+		return 3
+	}
 }
 
 func (m *model) updateFileList() {
