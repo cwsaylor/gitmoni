@@ -39,6 +39,12 @@ brew tap cwsaylor/tap
 brew install gitmoni
 ```
 
+To upgrade to the latest version:
+
+```bash
+brew upgrade cwsaylor/tap/gitmoni
+```
+
 ### Build from source
 
 ```bash
