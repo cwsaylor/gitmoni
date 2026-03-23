@@ -21,7 +21,7 @@ import (
 )
 
 // Version is set via ldflags at build time
-var Version = "0.8.1"
+var Version = "0.9.0"
 
 
 type focusedPane int

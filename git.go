@@ -89,6 +89,21 @@ func isGitRepository(path string) bool {
 	return err == nil
 }
 
+// isBinary reports whether content appears to be binary by checking
+// for null bytes in the first 8KB (same heuristic git uses).
+func isBinary(data []byte) bool {
+	n := len(data)
+	if n > 8192 {
+		n = 8192
+	}
+	for i := 0; i < n; i++ {
+		if data[i] == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func getFileDiff(repoPath, filePath string) (string, error) {
 	// First try working directory changes
 	cmd := exec.Command("git", "diff", "HEAD", "--", filePath)
@@ -113,6 +128,9 @@ func getFileDiff(repoPath, filePath string) (string, error) {
 				if strings.HasPrefix(cleanPath, filepath.Clean(repoPath)+string(filepath.Separator)) {
 					content, contentErr := os.ReadFile(cleanPath)
 					if contentErr == nil {
+						if isBinary(content) {
+							return fmt.Sprintf("Binary file: %s", filePath), nil
+						}
 						return fmt.Sprintf("New file: %s\n\n%s", filePath, string(content)), nil
 					}
 				}
@@ -122,6 +140,9 @@ func getFileDiff(repoPath, filePath string) (string, error) {
 
 	if err != nil {
 		return "", err
+	}
+	if isBinary(output) {
+		return fmt.Sprintf("Binary file: %s", filePath), nil
 	}
 	return string(output), nil
 }
